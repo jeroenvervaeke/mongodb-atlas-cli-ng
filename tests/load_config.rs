@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use atlas_cli::config;
+use mongodb_atlas_cli::config;
 use pretty_assertions::assert_eq;
 
 fn fixture_path(name: &str) -> PathBuf {

@@ -1,4 +1,4 @@
-# atlas-cli
+# mongodb-atlas-cli
 
 > Opinionated alternative CLI to interact with the MongoDB Atlas Admin API written in Rust
 
@@ -7,7 +7,7 @@
 
 ## Overview
 
-`atlas-cli` is an alternative to the official [MongoDB Atlas CLI](https://www.mongodb.com/docs/atlas/cli/stable/) that provides both a command-line interface and a Rust library to interact with MongoDB Atlas.
+`mongodb-atlas-cli` is an alternative to the official [MongoDB Atlas CLI](https://www.mongodb.com/docs/atlas/cli/stable/) that provides both a command-line interface and a Rust library to interact with MongoDB Atlas.
 
 ### Goals
 
@@ -20,7 +20,7 @@
 ### From source
 
 ```bash
-git clone https://github.com/jeroenvervaeke/atlas-cli-ng
+git clone https://github.com/jeroenvervaeke/mongodb-atlas-cli-ng
 cd atlas-cli-ng
 cargo install --path .
 ```
