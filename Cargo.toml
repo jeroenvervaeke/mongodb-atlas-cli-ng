@@ -2,7 +2,14 @@
 name = "atlas-cli"
 version = "0.0.1"
 edition = "2024"
-
+authors = ["Jeroen Vervaeke <atlas-cli-ng.s29p5@simplelogin.com>"]
+description = "Opinionated alternative CLI and library to interact with the MongoDB Atlas Admin API"
+license = "MIT"
+repository = "https://github.com/jeroenvervaeke/atlas-cli-ng"
+homepage = "https://github.com/jeroenvervaeke/atlas-cli-ng"
+readme = "README.md"
+keywords = ["mongodb", "atlas", "cli", "atlas-cli"]
+categories = ["command-line-utilities", "database"]
 
 [dependencies]
 config = "0.15.19"
