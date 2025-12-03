@@ -1,5 +1,8 @@
 # mongodb-atlas-cli
 
+[![crates.io](https://img.shields.io/crates/v/mongodb-atlas-cli.svg)](https://crates.io/crates/mongodb-atlas-cli)
+[![docs.rs](https://docs.rs/mongodb-atlas-cli/badge.svg)](https://docs.rs/mongodb-atlas-cli)
+
 > Opinionated alternative CLI to interact with the MongoDB Atlas Admin API written in Rust
 
 > [!WARNING]
@@ -26,6 +29,17 @@ cargo install --path .
 ```
 
 ## Using as a Library
+
+### Adding to your project
+
+Add the following to your `Cargo.toml`:
+
+```toml
+[dependencies]
+mongodb-atlas-cli = "0.0.1"
+```
+
+### Examples
 
 Check out the [`examples/`](examples/) directory for usage examples. You can run them with:
 
