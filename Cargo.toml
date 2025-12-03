@@ -15,9 +15,11 @@ exclude = ["cliff.toml"]
 [dependencies]
 config = "0.15.19"
 dirs = "6.0.0"
+keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "linux-native"] }
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.17"
-toml = "0.9.8"
+toml = { version = "0.9.8", features = ["preserve_order"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
+tempfile = "3.23.0"

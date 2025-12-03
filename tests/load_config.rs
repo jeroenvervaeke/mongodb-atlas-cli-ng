@@ -1,14 +1,8 @@
-use std::path::PathBuf;
-
 use mongodb_atlas_cli::config;
 use pretty_assertions::assert_eq;
 
-fn fixture_path(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join(name)
-}
+mod helper;
+use helper::fixture_path;
 
 #[test]
 fn minimal_config() {
