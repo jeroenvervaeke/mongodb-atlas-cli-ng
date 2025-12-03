@@ -1,0 +1,9 @@
+skip_update_check = true
+version = 2
+
+[profile_1]
+auth_type = 'user_account'
+org_id = '689eeba6559f4608e426b000'
+output = 'json'
+project_id = '689eebca5ebb720663a2d123'
+service = 'cloud'

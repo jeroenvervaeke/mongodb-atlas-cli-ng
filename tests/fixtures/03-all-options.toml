@@ -1,0 +1,22 @@
+version = 2
+
+local_deployment_image = 'my-registry.internal:5000/atlas-cli-local:latest'
+mongosh_path = '/home/user/mdb-tools/mongosh'
+telemetry_enabled = true
+skip_update_check = true
+
+[profile_with_user_account]
+service = 'cloud'
+org_id = '689eeba6559f4608e426b000'
+project_id = '689eebca5ebb720663a2d123'
+
+auth_type = 'user_account'
+output = 'json'
+
+[profile_with_api_keys]
+auth_type = 'api_keys'
+
+[profile_with_service_account]
+service = 'cloudgov'
+auth_type = 'service_account'
+output = 'plaintext'

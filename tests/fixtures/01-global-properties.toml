@@ -1,0 +1,6 @@
+version = 2
+
+local_deployment_image = "my-registry.internal:5000/atlas-cli-local:latest"
+mongosh_path = "/home/user/mdb-tools/mongosh"
+telemetry_enabled = true
+skip_update_check = true
