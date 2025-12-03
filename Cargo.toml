@@ -10,6 +10,7 @@ homepage = "https://github.com/jeroenvervaeke/mongodb-atlas-cli-ng"
 readme = "README.md"
 keywords = ["mongodb", "atlas", "cli", "atlas-cli"]
 categories = ["command-line-utilities", "database"]
+exclude = ["cliff.toml"]
 
 [dependencies]
 config = "0.15.19"
