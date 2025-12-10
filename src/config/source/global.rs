@@ -23,8 +23,7 @@ impl Source for AtlasCLIGlobalConfigSource {
     }
 
     fn collect(&self) -> Result<HashMap<String, Value>, ConfigError> {
-        let config =
-            config_value_from_toml_file("global", &self.source, |toml_config| Ok(toml_config))?;
+        let config = config_value_from_toml_file("global", &self.source, Ok)?;
 
         Ok(config)
     }

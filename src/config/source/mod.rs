@@ -44,8 +44,8 @@ fn config_value_from_toml_file(
         .map_err(|e| AtlasCLIConfigSourceError::FailedToReadFile(source.to_path_buf(), e))?;
 
     // Parse the TOML contents
-    let toml_config: toml::Value = toml::from_str(&file_content)
-        .map_err(|e| AtlasCLIConfigSourceError::FailedToParseTOML(e))?;
+    let toml_config: toml::Value =
+        toml::from_str(&file_content).map_err(AtlasCLIConfigSourceError::FailedToParseTOML)?;
 
     // Get the root as a table
     let toml::Value::Table(toml_root) = toml_config else {
@@ -60,9 +60,9 @@ fn config_value_from_toml_file(
     for (key, value) in root {
         let value_kind = match value {
             toml::Value::String(s) => Some(ValueKind::String(s.clone())),
-            toml::Value::Integer(i) => Some(ValueKind::I64(i.clone())),
-            toml::Value::Float(f) => Some(ValueKind::Float(f.clone())),
-            toml::Value::Boolean(b) => Some(ValueKind::Boolean(b.clone())),
+            toml::Value::Integer(i) => Some(ValueKind::I64(i)),
+            toml::Value::Float(f) => Some(ValueKind::Float(f)),
+            toml::Value::Boolean(b) => Some(ValueKind::Boolean(b)),
             toml::Value::Array(_) | toml::Value::Datetime(_) | toml::Value::Table(_) => {
                 // Unsupported by the CLI
                 None

@@ -24,7 +24,7 @@ impl LegacySecretStore {
 
 impl SecretStore for LegacySecretStore {
     fn get(
-        &mut self,
+        &self,
         profile_name: &str,
         auth_type: AuthType,
     ) -> Result<Option<Secret>, SecretStoreError> {
@@ -168,10 +168,9 @@ fn try_get_optional_string<'a>(
 }
 
 fn save_toml_table(path: impl AsRef<Path>, table: Table) -> Result<(), SecretStoreError> {
-    let file_content =
-        toml::to_string(&table).map_err(|e| SecretStoreError::FailedToSerialize {
-            reason: e.to_string(),
-        })?;
+    let file_content = toml::to_string(&table).map_err(|e| SecretStoreError::Serialization {
+        reason: e.to_string(),
+    })?;
     std::fs::write(path, file_content).map_err(|e| SecretStoreError::KeyStoreUnavailable {
         reason: e.to_string(),
     })?;
