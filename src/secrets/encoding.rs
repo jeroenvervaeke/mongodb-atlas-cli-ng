@@ -1,14 +1,16 @@
-#[cfg(target_os = "macos")]
 use std::borrow::Cow;
 use std::string::FromUtf8Error;
 
+#[cfg(target_os = "macos")]
 use base64::{DecodeError, Engine, prelude::*};
 use hex::FromHexError;
 use thiserror::Error;
 
 use crate::secrets::SecretStoreError;
 
+#[cfg(target_os = "macos")]
 const HEX_ENCODING_PREFIX: &str = "go-keyring-encoded:";
+#[cfg(target_os = "macos")]
 const BASE64_ENCODING_PREFIX: &str = "go-keyring-base64:";
 
 #[derive(Debug, Error)]
@@ -17,6 +19,7 @@ pub enum DecodePasswordError {
     InvalidHexValue(#[from] FromHexError),
     #[error("Invalid utf8 value: {0}")]
     InvalidUtf8Value(#[from] FromUtf8Error),
+    #[cfg(target_os = "macos")]
     #[error("Invalid base64 value: {0}")]
     InvalidBase64Value(#[from] DecodeError),
 }
