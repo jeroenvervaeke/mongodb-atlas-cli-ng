@@ -103,7 +103,7 @@ async fn main() {
     // Step 4: Make an authenticated request.
     //
     // The URI is built from the config's base URL so that dev/staging
-    // environments (e.g., cloud-dev.mongodb.com) are supported automatically.
+    // environments are supported automatically.
     let uri = format!("{}/api/atlas/v2/groups", cfg.base_url());
     println!("\nRequesting: {uri}");
 
