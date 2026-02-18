@@ -32,6 +32,9 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-cargo-
 
+    - name: Install system dependencies (Linux)
+      run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev
+
     - name: Install cargo-binstall
       uses: cargo-bins/cargo-binstall@v1.16.6
 
@@ -77,6 +80,10 @@ jobs:
       run: |
         rustup update ${{ matrix.rust }}
         rustup default ${{ matrix.rust }}
+
+    - name: Install system dependencies (Linux)
+      if: runner.os == 'Linux'
+      run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev
 
     - name: Cache cargo registry
       uses: actions/cache@v4
