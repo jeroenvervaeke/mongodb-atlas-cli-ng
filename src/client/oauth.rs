@@ -21,7 +21,7 @@
 //! 3. Users don't need to construct or wire up a separate HTTP client.
 
 use std::fmt;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use bytes::{Buf, Bytes};
 use http::{Request, Response};
@@ -107,8 +107,8 @@ where
     debug!(endpoint = %endpoint, "POSTing to token endpoint");
 
     let body = ReqBody::from(Bytes::from(form_body));
-    let mut builder = Request::post(endpoint)
-        .header("Content-Type", "application/x-www-form-urlencoded");
+    let mut builder =
+        Request::post(endpoint).header("Content-Type", "application/x-www-form-urlencoded");
     if let Some(auth) = authorization {
         builder = builder.header("Authorization", auth);
     }
@@ -226,6 +226,40 @@ impl CachedToken {
     /// and let the server tell us otherwise.
     pub fn is_expired(&self) -> bool {
         self.expires_at.is_some_and(|exp| Instant::now() >= exp)
+    }
+
+    /// Convert this token's expiry to a Unix timestamp (seconds since epoch)
+    /// for persistent storage.
+    ///
+    /// The stored value already includes the 30-second buffer that was
+    /// subtracted when the token was first cached, so loading it back via
+    /// [`from_unix_expiry`](Self::from_unix_expiry) will reproduce the same
+    /// proactive-refresh behaviour without double-applying the buffer.
+    ///
+    /// Returns `None` if the token has no tracked expiry or if the expiry
+    /// has already passed (nothing useful to store).
+    pub fn expires_at_as_unix(&self) -> Option<u64> {
+        let expires_at = self.expires_at?;
+        let remaining = expires_at.checked_duration_since(Instant::now())?;
+        let expiry_system_time = SystemTime::now() + remaining;
+        expiry_system_time
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs())
+    }
+
+    /// Reconstruct a `CachedToken` from an access token and a Unix timestamp
+    /// that was previously stored via [`expires_at_as_unix`](Self::expires_at_as_unix).
+    ///
+    /// Returns `None` if the timestamp is already in the past, indicating
+    /// the token has expired and a fresh one must be acquired.
+    pub fn from_unix_expiry(access_token: String, unix_secs: u64) -> Option<Self> {
+        let expiry_system_time = SystemTime::UNIX_EPOCH + Duration::from_secs(unix_secs);
+        let remaining = expiry_system_time.duration_since(SystemTime::now()).ok()?;
+        Some(CachedToken {
+            access_token,
+            expires_at: Some(Instant::now() + remaining),
+        })
     }
 }
 

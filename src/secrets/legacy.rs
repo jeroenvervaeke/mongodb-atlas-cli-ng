@@ -72,10 +72,17 @@ impl SecretStore for LegacySecretStore {
                     try_get_optional_string(&mut profile_table, "service_account_access_token")?
                         .map(|s| s.to_string());
 
+                let token_expires_at = try_get_optional_string(
+                    &mut profile_table,
+                    "service_account_token_expires_at",
+                )?
+                .and_then(|s| s.parse::<u64>().ok());
+
                 Secret::ServiceAccount(ServiceAccount {
                     client_id,
                     client_secret,
                     access_token,
+                    token_expires_at,
                 })
             }
             AuthType::UserAccount => {
@@ -121,9 +128,12 @@ impl SecretStore for LegacySecretStore {
                     service_account.client_secret.into(),
                 );
                 if let Some(token) = service_account.access_token {
+                    profile_table.insert("service_account_access_token".to_string(), token.into());
+                }
+                if let Some(expires_at) = service_account.token_expires_at {
                     profile_table.insert(
-                        "service_account_access_token".to_string(),
-                        token.into(),
+                        "service_account_token_expires_at".to_string(),
+                        expires_at.to_string().into(),
                     );
                 }
             }

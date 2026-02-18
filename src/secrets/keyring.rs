@@ -13,6 +13,7 @@ const KEY_API_KEYS_PRIVATE_API_KEY: &str = "private_api_key";
 const KEY_SERVICE_ACCOUNT_CLIENT_ID: &str = "client_id";
 const KEY_SERVICE_ACCOUNT_CLIENT_SECRET: &str = "client_secret";
 const KEY_SERVICE_ACCOUNT_ACCESS_TOKEN: &str = "service_account_access_token";
+const KEY_SERVICE_ACCOUNT_TOKEN_EXPIRES_AT: &str = "service_account_token_expires_at";
 
 pub struct KeyringSecretStore {}
 
@@ -121,10 +122,14 @@ impl SecretStore for KeyringSecretStore {
                 };
                 let access_token =
                     get_keyring_value(profile_name, KEY_SERVICE_ACCOUNT_ACCESS_TOKEN)?;
+                let token_expires_at =
+                    get_keyring_value(profile_name, KEY_SERVICE_ACCOUNT_TOKEN_EXPIRES_AT)?
+                        .and_then(|s| s.parse::<u64>().ok());
                 Some(Secret::ServiceAccount(ServiceAccount {
                     client_id,
                     client_secret,
                     access_token,
+                    token_expires_at,
                 }))
             }
         })
@@ -157,10 +162,13 @@ impl SecretStore for KeyringSecretStore {
                     &service_account.client_secret,
                 )?;
                 if let Some(token) = &service_account.access_token {
+                    set_keyring_value(profile_name, KEY_SERVICE_ACCOUNT_ACCESS_TOKEN, token)?;
+                }
+                if let Some(expires_at) = service_account.token_expires_at {
                     set_keyring_value(
                         profile_name,
-                        KEY_SERVICE_ACCOUNT_ACCESS_TOKEN,
-                        token,
+                        KEY_SERVICE_ACCOUNT_TOKEN_EXPIRES_AT,
+                        &expires_at.to_string(),
                     )?;
                 }
                 Ok(())
@@ -189,6 +197,7 @@ impl SecretStore for KeyringSecretStore {
         try_delete_entry(profile_name, KEY_SERVICE_ACCOUNT_CLIENT_ID);
         try_delete_entry(profile_name, KEY_SERVICE_ACCOUNT_CLIENT_SECRET);
         try_delete_entry(profile_name, KEY_SERVICE_ACCOUNT_ACCESS_TOKEN);
+        try_delete_entry(profile_name, KEY_SERVICE_ACCOUNT_TOKEN_EXPIRES_AT);
 
         Ok(())
     }

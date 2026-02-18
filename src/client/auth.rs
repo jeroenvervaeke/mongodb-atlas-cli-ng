@@ -289,6 +289,9 @@ impl AuthMethod {
                             client_id: client_id.clone(),
                             client_secret: client_secret.clone(),
                             access_token: Some(response.access_token.clone()),
+                            token_expires_at: cached_token
+                                .as_ref()
+                                .and_then(|t| t.expires_at_as_unix()),
                         }),
                     )?;
                 }
@@ -386,6 +389,10 @@ impl AuthenticationLayer {
     ///
     /// * `access_token` - A pre-existing access token to seed the cache (avoids
     ///   a token endpoint round-trip on the first request).
+    /// * `token_expires_at` - Unix timestamp (seconds since epoch) at which
+    ///   `access_token` should be proactively refreshed. Ignored when
+    ///   `access_token` is `None`. If the timestamp is already in the past,
+    ///   the token is treated as expired and not cached.
     /// * `client_id` / `client_secret` - OAuth2 client credentials.
     /// * `token_endpoint` - URL to POST to when acquiring or refreshing tokens.
     /// * `secret_store` - Optional store for persisting acquired tokens.
@@ -393,13 +400,18 @@ impl AuthenticationLayer {
     ///   `secret_store` is `Some`).
     pub fn service_account(
         access_token: Option<String>,
+        token_expires_at: Option<u64>,
         client_id: String,
         client_secret: String,
         token_endpoint: String,
         secret_store: Option<Box<dyn SecretStore>>,
         profile_name: Option<String>,
     ) -> Self {
-        let cached_token = access_token.map(CachedToken::new);
+        let cached_token = match (access_token, token_expires_at) {
+            (Some(token), Some(unix_secs)) => CachedToken::from_unix_expiry(token, unix_secs),
+            (Some(token), None) => Some(CachedToken::new(token)),
+            (None, _) => None,
+        };
         AuthenticationLayer {
             state: Arc::new(RwLock::new(AuthState {
                 method: AuthMethod::ServiceAccount {
@@ -516,6 +528,7 @@ impl AuthenticationLayer {
             }
             (AuthType::ServiceAccount, Secret::ServiceAccount(sa)) => Ok(Self::service_account(
                 sa.access_token,
+                sa.token_expires_at,
                 sa.client_id,
                 sa.client_secret,
                 service_account_token_endpoint,

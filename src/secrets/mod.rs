@@ -81,6 +81,10 @@ pub struct ServiceAccount {
     /// Cached access token. When present, the auth middleware uses it directly
     /// instead of making a token endpoint request on the first call.
     pub access_token: Option<String>,
+    /// Unix timestamp (seconds since epoch) at which the cached access token
+    /// should be proactively refreshed (already has the 30-second buffer
+    /// subtracted). `None` if no expiry is known.
+    pub token_expires_at: Option<u64>,
 }
 
 impl ServiceAccount {
@@ -89,6 +93,7 @@ impl ServiceAccount {
             client_id,
             client_secret,
             access_token: None,
+            token_expires_at: None,
         }
     }
 }
