@@ -12,6 +12,7 @@ const KEY_API_KEYS_PUBLIC_API_KEY: &str = "public_api_key";
 const KEY_API_KEYS_PRIVATE_API_KEY: &str = "private_api_key";
 const KEY_SERVICE_ACCOUNT_CLIENT_ID: &str = "client_id";
 const KEY_SERVICE_ACCOUNT_CLIENT_SECRET: &str = "client_secret";
+const KEY_SERVICE_ACCOUNT_ACCESS_TOKEN: &str = "service_account_access_token";
 
 pub struct KeyringSecretStore {}
 
@@ -107,12 +108,25 @@ impl SecretStore for KeyringSecretStore {
                 KEY_API_KEYS_PRIVATE_API_KEY,
                 ApiKeys::new,
             )?,
-            AuthType::ServiceAccount => get_base_secret(
-                profile_name,
-                KEY_SERVICE_ACCOUNT_CLIENT_ID,
-                KEY_SERVICE_ACCOUNT_CLIENT_SECRET,
-                ServiceAccount::new,
-            )?,
+            AuthType::ServiceAccount => {
+                let Some(client_id) =
+                    get_keyring_value(profile_name, KEY_SERVICE_ACCOUNT_CLIENT_ID)?
+                else {
+                    return Ok(None);
+                };
+                let Some(client_secret) =
+                    get_keyring_value(profile_name, KEY_SERVICE_ACCOUNT_CLIENT_SECRET)?
+                else {
+                    return Ok(None);
+                };
+                let access_token =
+                    get_keyring_value(profile_name, KEY_SERVICE_ACCOUNT_ACCESS_TOKEN)?;
+                Some(Secret::ServiceAccount(ServiceAccount {
+                    client_id,
+                    client_secret,
+                    access_token,
+                }))
+            }
         })
     }
 
@@ -142,6 +156,13 @@ impl SecretStore for KeyringSecretStore {
                     KEY_SERVICE_ACCOUNT_CLIENT_SECRET,
                     &service_account.client_secret,
                 )?;
+                if let Some(token) = &service_account.access_token {
+                    set_keyring_value(
+                        profile_name,
+                        KEY_SERVICE_ACCOUNT_ACCESS_TOKEN,
+                        token,
+                    )?;
+                }
                 Ok(())
             }
             Secret::UserAccount(user_account) => {
@@ -167,6 +188,7 @@ impl SecretStore for KeyringSecretStore {
         try_delete_entry(profile_name, KEY_API_KEYS_PRIVATE_API_KEY);
         try_delete_entry(profile_name, KEY_SERVICE_ACCOUNT_CLIENT_ID);
         try_delete_entry(profile_name, KEY_SERVICE_ACCOUNT_CLIENT_SECRET);
+        try_delete_entry(profile_name, KEY_SERVICE_ACCOUNT_ACCESS_TOKEN);
 
         Ok(())
     }

@@ -109,13 +109,19 @@ pub enum AuthMethod {
     /// OAuth2 Bearer authentication using the client credentials grant.
     ///
     /// Acquires tokens by POSTing client_id/client_secret to the token
-    /// endpoint. Tokens are cached in memory but not persisted — only
-    /// the credentials themselves are stored in the secret store.
+    /// endpoint with Basic auth credentials. Tokens are cached in memory
+    /// and, when a `secret_store` is provided, persisted across process
+    /// invocations so the token endpoint is not hit on every CLI run.
     ServiceAccount {
         cached_token: Option<CachedToken>,
         client_id: String,
         client_secret: String,
         token_endpoint: String,
+        /// When present, acquired tokens are persisted here so they survive
+        /// across process invocations (analogous to `UserAccount`).
+        secret_store: Option<Box<dyn SecretStore>>,
+        /// The profile name used as the key in `secret_store`.
+        profile_name: Option<String>,
     },
 
     /// HTTP Digest authentication using API keys.
@@ -263,11 +269,30 @@ impl AuthMethod {
 
                 Ok(())
             }
-            AuthMethod::ServiceAccount { cached_token, .. } => {
-                // Service account tokens are ephemeral — we cache them in
-                // memory for the duration of this CLI session, but don't
-                // persist them. Only the client credentials are stored.
+            AuthMethod::ServiceAccount {
+                cached_token,
+                client_id,
+                client_secret,
+                secret_store,
+                profile_name,
+                ..
+            } => {
                 *cached_token = Some(new_token);
+
+                // Persist the acquired token so subsequent process invocations
+                // can reuse it without hitting the token endpoint again.
+                if let (Some(store), Some(name)) = (secret_store.as_mut(), profile_name.as_deref())
+                {
+                    store.set(
+                        name,
+                        Secret::ServiceAccount(crate::secrets::ServiceAccount {
+                            client_id: client_id.clone(),
+                            client_secret: client_secret.clone(),
+                            access_token: Some(response.access_token.clone()),
+                        }),
+                    )?;
+                }
+
                 Ok(())
             }
             AuthMethod::ApiKeys { .. } => Ok(()),
@@ -352,20 +377,38 @@ impl AuthenticationLayer {
     /// Create a layer for **ServiceAccount** authentication.
     ///
     /// Uses the OAuth2 client credentials grant. The middleware acquires
-    /// a Bearer token by POSTing client_id/client_secret to the token
-    /// endpoint via the inner Tower service, then caches it until expiry.
+    /// a Bearer token using Basic auth credentials, then caches it until expiry.
+    /// Without a secret store, the token is only cached in memory for the
+    /// duration of the process. Use [`from_config`](Self::from_config) to get
+    /// cross-invocation persistence via the OS keychain.
+    ///
+    /// # Arguments
+    ///
+    /// * `access_token` - A pre-existing access token to seed the cache (avoids
+    ///   a token endpoint round-trip on the first request).
+    /// * `client_id` / `client_secret` - OAuth2 client credentials.
+    /// * `token_endpoint` - URL to POST to when acquiring or refreshing tokens.
+    /// * `secret_store` - Optional store for persisting acquired tokens.
+    /// * `profile_name` - Profile key for the secret store (required when
+    ///   `secret_store` is `Some`).
     pub fn service_account(
+        access_token: Option<String>,
         client_id: String,
         client_secret: String,
         token_endpoint: String,
+        secret_store: Option<Box<dyn SecretStore>>,
+        profile_name: Option<String>,
     ) -> Self {
+        let cached_token = access_token.map(CachedToken::new);
         AuthenticationLayer {
             state: Arc::new(RwLock::new(AuthState {
                 method: AuthMethod::ServiceAccount {
-                    cached_token: None,
+                    cached_token,
                     client_id,
                     client_secret,
                     token_endpoint,
+                    secret_store,
+                    profile_name,
                 },
             })),
         }
@@ -472,9 +515,12 @@ impl AuthenticationLayer {
                 ))
             }
             (AuthType::ServiceAccount, Secret::ServiceAccount(sa)) => Ok(Self::service_account(
+                sa.access_token,
                 sa.client_id,
                 sa.client_secret,
                 service_account_token_endpoint,
+                Some(secret_store),
+                Some(profile_name.to_string()),
             )),
             (AuthType::ApiKeys, Secret::ApiKeys(keys)) => {
                 Ok(Self::api_keys(keys.public_api_key, keys.private_api_key))
@@ -1227,6 +1273,8 @@ mod tests {
                     client_id: "my-client-id".into(),
                     client_secret: "my-client-secret".into(),
                     token_endpoint: "https://example.com/token".into(),
+                    secret_store: None,
+                    profile_name: None,
                 },
             })),
         };
@@ -1271,6 +1319,8 @@ mod tests {
                     client_id: "my-client-id".into(),
                     client_secret: "my-client-secret".into(),
                     token_endpoint: "https://example.com/token".into(),
+                    secret_store: None,
+                    profile_name: None,
                 },
             })),
         };

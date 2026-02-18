@@ -78,6 +78,9 @@ impl From<ApiKeys> for Secret {
 pub struct ServiceAccount {
     pub client_id: String,
     pub client_secret: String,
+    /// Cached access token. When present, the auth middleware uses it directly
+    /// instead of making a token endpoint request on the first call.
+    pub access_token: Option<String>,
 }
 
 impl ServiceAccount {
@@ -85,6 +88,7 @@ impl ServiceAccount {
         Self {
             client_id,
             client_secret,
+            access_token: None,
         }
     }
 }

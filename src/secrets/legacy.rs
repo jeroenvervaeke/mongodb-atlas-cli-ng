@@ -68,7 +68,15 @@ impl SecretStore for LegacySecretStore {
                     return Ok(None);
                 };
 
-                Secret::ServiceAccount(ServiceAccount::new(client_id, client_secret))
+                let access_token =
+                    try_get_optional_string(&mut profile_table, "service_account_access_token")?
+                        .map(|s| s.to_string());
+
+                Secret::ServiceAccount(ServiceAccount {
+                    client_id,
+                    client_secret,
+                    access_token,
+                })
             }
             AuthType::UserAccount => {
                 let Some(access_token) =
@@ -112,6 +120,12 @@ impl SecretStore for LegacySecretStore {
                     "client_secret".to_string(),
                     service_account.client_secret.into(),
                 );
+                if let Some(token) = service_account.access_token {
+                    profile_table.insert(
+                        "service_account_access_token".to_string(),
+                        token.into(),
+                    );
+                }
             }
             Secret::UserAccount(user_account) => {
                 profile_table.insert("access_token".to_string(), user_account.access_token.into());
