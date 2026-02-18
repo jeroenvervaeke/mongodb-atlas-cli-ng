@@ -36,7 +36,7 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev
 
     - name: Install cargo-binstall
-      uses: cargo-bins/cargo-binstall@v1.16.6
+      uses: cargo-bins/cargo-binstall@v1.17.5
 
     - name: Install cargo-udeps
       run: cargo binstall --no-confirm cargo-udeps
