@@ -20,7 +20,16 @@ pub enum SecretStoreError {
     Serialization { reason: String },
 }
 
-pub trait SecretStore {
+/// Trait for reading and writing authentication secrets.
+///
+/// The `Send + Sync` supertraits are required because the authentication
+/// middleware stores the secret store behind an `Arc<RwLock<...>>`, which
+/// requires `Send + Sync` for safe sharing across async tasks.
+///
+/// The `#[cfg_attr(test, mockall::automock)]` attribute generates a
+/// `MockSecretStore` type during test compilation for use in unit tests.
+#[cfg_attr(test, mockall::automock)]
+pub trait SecretStore: Send + Sync {
     fn get(
         &self,
         profile_name: &str,

@@ -1,56 +1,44 @@
-use tower_http::{
-    classify::StatusInRangeAsFailures, decompression::DecompressionLayer, set_header::SetRequestHeaderLayer, trace::TraceLayer
-};
-use tower::{ServiceBuilder, Service, ServiceExt};
-use hyper_util::{rt::TokioExecutor, client::legacy::Client, client::proxy::matcher};
-use http_body_util::{BodyExt, Full};
-use bytes::Bytes;
-use http::{HeaderValue, Request, Uri, header::USER_AGENT};
+//! HTTP client with authentication middleware.
+//!
+//! This module provides a Tower-based HTTP client with pluggable authentication.
+//! The main components are:
+//!
+//! - [`AuthenticationLayer`] / [`Authentication`]: Tower middleware that adds
+//!   auth headers to outgoing requests. Supports three auth methods:
+//!   - **UserAccount**: OAuth2 Bearer + refresh token
+//!   - **ServiceAccount**: OAuth2 client credentials grant
+//!   - **ApiKeys**: HTTP Digest authentication
+//!
+//! - [`AuthError`]: Error type for authentication failures.
+//!
+//! - [`OAuthTokenResponse`]: The parsed response from an OAuth2 token endpoint.
+//!
+//! Token acquisition is handled internally by the middleware — it uses the
+//! inner Tower service to POST to the token endpoint, so no separate HTTP
+//! client or closure is needed.
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! use tower::ServiceBuilder;
+//! use mongodb_atlas_cli::client::AuthenticationLayer;
+//!
+//! // Digest auth (ApiKeys) — simplest setup, no token endpoint needed.
+//! let auth_layer = AuthenticationLayer::api_keys(
+//!     "my-public-key".into(),
+//!     "my-private-key".into(),
+//! );
+//!
+//! let client = ServiceBuilder::new()
+//!     .layer(auth_layer)
+//!     .service(http_client);
+//! ```
 
-pub async fn make_request() {
-    let proxy_matcher = matcher::Matcher::from_env();
+pub mod auth;
+pub mod digest;
+pub mod error;
+pub mod oauth;
 
-    let client = Client::builder(TokioExecutor::new()).build_http();
-        let mut client = ServiceBuilder::new()
-            // Add tracing and consider server errors and client
-            // errors as failures.
-            .layer(TraceLayer::new(
-                StatusInRangeAsFailures::new(400..=599).into_make_classifier()
-            ))
-            // Set a `User-Agent` header on all requests.
-            .layer(SetRequestHeaderLayer::overriding(
-                USER_AGENT,
-                HeaderValue::from_static("tower-http demo")
-            ))
-            // Decompress response bodies
-            .layer(DecompressionLayer::new())
-            // Wrap a `Client` in our middleware stack.
-            // This is possible because `Client` implements
-            // `tower::Service`.
-            .service(client);
-
-        let mut uri: Uri = "http://example.com".try_into().unwrap();
-        if let Some(intercept) = proxy_matcher.intercept(&uri) {
-            uri = intercept.uri().clone();
-        }
-    
-        // Make a request
-        let request = Request::builder()
-            .uri(uri)
-            .body(Full::<Bytes>::default())
-            .unwrap();
-    
-        let response = client
-            .ready()
-            .await
-            .unwrap()
-            .call(request)
-            .await
-            .unwrap();
-
-        let body = response.into_body();
-        let bytes = body.collect().await.unwrap().to_bytes().to_vec();
-        let body = String::from_utf8(bytes).unwrap();
-        println!("{}", body);
-
-    }
+pub use auth::{AuthMethod, Authentication, AuthenticationLayer};
+pub use error::{AuthError, FromConfigError};
+pub use oauth::{CachedToken, OAuthError, OAuthTokenResponse};
