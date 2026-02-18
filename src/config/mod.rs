@@ -42,6 +42,17 @@ pub struct AtlasCLIConfig {
     pub service: Option<Service>,
     /// The output format to use
     pub output: Option<OutputFormat>,
+
+    /// Custom base URL for the Atlas API
+    ///
+    /// When set, this overrides the default service-based URL for both API
+    /// requests and token endpoints. Used for dev/staging environments.
+    pub ops_manager_url: Option<String>,
+
+    /// OAuth2 client ID override. Dev/staging environments use a different
+    /// client ID than production. When set, this takes priority over the
+    /// hardcoded per-service defaults.
+    pub client_id: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -60,6 +71,55 @@ pub enum Service {
     Cloud,
     #[serde(rename = "cloudgov")]
     CloudGov,
+}
+
+impl AtlasCLIConfig {
+    /// Returns the base URL for API requests and token endpoints.
+    ///
+    /// Priority (matching the Go CLI):
+    /// 1. `ops_manager_url` from the config (custom/dev environments)
+    /// 2. Default URL derived from the `service` field
+    pub fn base_url(&self) -> &str {
+        if let Some(url) = &self.ops_manager_url {
+            url.trim_end_matches('/')
+        } else {
+            self.service.unwrap_or(Service::Cloud).default_base_url()
+        }
+    }
+
+    /// Returns the OAuth2 client ID for device-flow authentication.
+    ///
+    /// Priority:
+    /// 1. `client_id` from the config (dev/staging environments)
+    /// 2. Hardcoded per-service default (production Cloud / CloudGov)
+    pub fn cli_client_id(&self) -> &str {
+        if let Some(id) = &self.client_id {
+            id
+        } else {
+            self.service.unwrap_or(Service::Cloud).cli_client_id()
+        }
+    }
+}
+
+impl Service {
+    /// The default base URL for this service environment.
+    pub fn default_base_url(&self) -> &'static str {
+        match self {
+            Service::Cloud => "https://cloud.mongodb.com",
+            Service::CloudGov => "https://cloud.mongodbgov.com",
+        }
+    }
+
+    /// The well-known OAuth2 client ID for the Atlas CLI device flow.
+    ///
+    /// This is the public client ID registered with MongoDB's identity
+    /// provider specifically for the Atlas CLI. It is not a secret.
+    pub fn cli_client_id(&self) -> &'static str {
+        match self {
+            Service::Cloud => "0oabtxactgS3gHIR0297",
+            Service::CloudGov => "0oabtyfelbTBdoucy297",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]

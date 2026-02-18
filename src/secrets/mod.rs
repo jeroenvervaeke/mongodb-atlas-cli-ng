@@ -20,7 +20,16 @@ pub enum SecretStoreError {
     Serialization { reason: String },
 }
 
-pub trait SecretStore {
+/// Trait for reading and writing authentication secrets.
+///
+/// The `Send + Sync` supertraits are required because the authentication
+/// middleware stores the secret store behind an `Arc<RwLock<...>>`, which
+/// requires `Send + Sync` for safe sharing across async tasks.
+///
+/// The `#[cfg_attr(test, mockall::automock)]` attribute generates a
+/// `MockSecretStore` type during test compilation for use in unit tests.
+#[cfg_attr(test, mockall::automock)]
+pub trait SecretStore: Send + Sync {
     fn get(
         &self,
         profile_name: &str,
@@ -69,6 +78,13 @@ impl From<ApiKeys> for Secret {
 pub struct ServiceAccount {
     pub client_id: String,
     pub client_secret: String,
+    /// Cached access token. When present, the auth middleware uses it directly
+    /// instead of making a token endpoint request on the first call.
+    pub access_token: Option<String>,
+    /// Unix timestamp (seconds since epoch) at which the cached access token
+    /// should be proactively refreshed (already has the 30-second buffer
+    /// subtracted). `None` if no expiry is known.
+    pub token_expires_at: Option<u64>,
 }
 
 impl ServiceAccount {
@@ -76,6 +92,8 @@ impl ServiceAccount {
         Self {
             client_id,
             client_secret,
+            access_token: None,
+            token_expires_at: None,
         }
     }
 }

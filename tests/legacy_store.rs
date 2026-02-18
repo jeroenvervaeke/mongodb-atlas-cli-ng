@@ -18,7 +18,7 @@ fn legacy_store_get_user_account_profile() {
         "user_account-0987654321".to_string(),
     ));
 
-    let mut legacy_store = LegacySecretStore::new(fixture_path("05-all-credential-types.toml"));
+    let legacy_store = LegacySecretStore::new(fixture_path("05-all-credential-types.toml"));
 
     let actual = legacy_store
         .get("profile_with_user_account", AuthType::UserAccount)
@@ -36,7 +36,7 @@ fn legacy_store_get_api_keys_profile() {
         "api_keys-0987654321".to_string(),
     ));
 
-    let mut legacy_store = LegacySecretStore::new(fixture_path("05-all-credential-types.toml"));
+    let legacy_store = LegacySecretStore::new(fixture_path("05-all-credential-types.toml"));
 
     let actual = legacy_store
         .get("profile_with_api_keys", AuthType::ApiKeys)
@@ -54,7 +54,7 @@ fn legacy_store_get_service_account_profile() {
         "service_account-0987654321".to_string(),
     ));
 
-    let mut legacy_store = LegacySecretStore::new(fixture_path("05-all-credential-types.toml"));
+    let legacy_store = LegacySecretStore::new(fixture_path("05-all-credential-types.toml"));
 
     let actual = legacy_store
         .get("profile_with_service_account", AuthType::ServiceAccount)
@@ -67,7 +67,7 @@ fn legacy_store_get_service_account_profile() {
 
 #[test]
 fn legacy_store_get_profile_not_found() {
-    let mut legacy_store = LegacySecretStore::new(fixture_path("05-all-credential-types.toml"));
+    let legacy_store = LegacySecretStore::new(fixture_path("05-all-credential-types.toml"));
 
     assert!(
         legacy_store

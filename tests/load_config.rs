@@ -72,6 +72,8 @@ fn all_options_config_profile_with_user_account() {
         project_id: Some("689eebca5ebb720663a2d123".to_string()),
         service: Some(config::Service::Cloud),
         output: Some(config::OutputFormat::Json),
+        ops_manager_url: None,
+        client_id: None,
     };
 
     let actual = config::load_config_from_file(
