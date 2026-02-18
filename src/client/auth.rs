@@ -175,14 +175,20 @@ impl AuthMethod {
         }
     }
 
-    /// Build the token endpoint URL and form-encoded body for a token request.
+    /// Build the token endpoint URL, form-encoded body, and optional authorization header
+    /// for a token request.
     ///
-    /// Returns `(endpoint_url, form_body)`. The form body is ready to be
-    /// sent as the body of a POST request with `Content-Type: application/x-www-form-urlencoded`.
+    /// Returns `(endpoint_url, form_body, authorization_header)`. The form body is ready
+    /// to be sent as the body of a POST request with
+    /// `Content-Type: application/x-www-form-urlencoded`. The authorization header, when
+    /// present, should be sent as the `Authorization` request header.
+    ///
+    /// For the client credentials grant (ServiceAccount), the Atlas token endpoint requires
+    /// credentials in an `Authorization: Basic` header rather than the request body.
     ///
     /// Clones the necessary credential data so the request can be used
     /// after the lock is released.
-    fn build_token_request(&self) -> Option<(String, String)> {
+    fn build_token_request(&self) -> Option<(String, String, Option<String>)> {
         match self {
             AuthMethod::UserAccount {
                 refresh_token,
@@ -196,7 +202,7 @@ impl AuthMethod {
                     .append_pair("scope", "openid profile offline_access")
                     .append_pair("grant_type", "refresh_token")
                     .finish();
-                Some((token_endpoint.clone(), form_body))
+                Some((token_endpoint.clone(), form_body, None))
             }
             AuthMethod::ServiceAccount {
                 client_id,
@@ -206,10 +212,13 @@ impl AuthMethod {
             } => {
                 let form_body = url::form_urlencoded::Serializer::new(String::new())
                     .append_pair("grant_type", "client_credentials")
-                    .append_pair("client_id", client_id)
-                    .append_pair("client_secret", client_secret)
                     .finish();
-                Some((token_endpoint.clone(), form_body))
+                let credentials = base64::Engine::encode(
+                    &base64::engine::general_purpose::STANDARD,
+                    format!("{client_id}:{client_secret}"),
+                );
+                let authorization = format!("Basic {credentials}");
+                Some((token_endpoint.clone(), form_body, Some(authorization)))
             }
             AuthMethod::ApiKeys { .. } => None,
         }
@@ -764,7 +773,7 @@ where
     } // Read lock released.
 
     // Step 2: Build the token request params (clone credentials while under read lock).
-    let (endpoint, form_body) = {
+    let (endpoint, form_body, authorization) = {
         let guard = state.read().await;
         guard.method.build_token_request().ok_or_else(|| {
             AuthError::TokenAcquisitionFailed(
@@ -781,7 +790,7 @@ where
         .await
         .map_err(AuthError::Inner)?;
 
-    let response = oauth::acquire_token(&mut inner, &endpoint, form_body)
+    let response = oauth::acquire_token(&mut inner, &endpoint, form_body, authorization)
         .await
         .map_err(|e| {
             warn!(error = %e, "token acquisition failed");

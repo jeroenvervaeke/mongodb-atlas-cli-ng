@@ -80,6 +80,8 @@ pub enum OAuthError {
 ///   responsible for readying this service before calling `acquire_token`.
 /// * `endpoint` - The OAuth2 token endpoint URL.
 /// * `form_body` - The URL-encoded form body (e.g., `grant_type=refresh_token&...`).
+/// * `authorization` - An optional pre-built `Authorization` header value (e.g.,
+///   `Basic base64(client_id:client_secret)` for the client credentials grant).
 ///
 /// # Type Parameters
 ///
@@ -91,6 +93,7 @@ pub(crate) async fn acquire_token<S, ReqBody, ResBody>(
     inner: &mut S,
     endpoint: &str,
     form_body: String,
+    authorization: Option<String>,
 ) -> Result<OAuthTokenResponse, OAuthError>
 where
     S: Service<Request<ReqBody>, Response = Response<ResBody>>,
@@ -104,8 +107,12 @@ where
     debug!(endpoint = %endpoint, "POSTing to token endpoint");
 
     let body = ReqBody::from(Bytes::from(form_body));
-    let request = Request::post(endpoint)
-        .header("Content-Type", "application/x-www-form-urlencoded")
+    let mut builder = Request::post(endpoint)
+        .header("Content-Type", "application/x-www-form-urlencoded");
+    if let Some(auth) = authorization {
+        builder = builder.header("Authorization", auth);
+    }
+    let request = builder
         .body(body)
         .map_err(|e| OAuthError::HttpError(format!("failed to build token request: {e}")))?;
 
