@@ -22,7 +22,7 @@ jobs:
         rustup toolchain install nightly
 
     - name: Cache cargo registry
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: |
           ~/.cargo/registry
@@ -83,7 +83,7 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev
 
     - name: Cache cargo registry
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: |
           ~/.cargo/registry
