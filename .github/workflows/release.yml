@@ -1,0 +1,141 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.0.0)'
+        required: true
+        type: string
+
+run-name: "Release: ${{ inputs.version }}"
+
+permissions:
+  contents: write
+  id-token: write # Required for trusted publishing to crates.io
+
+jobs:
+  update-version-and-changelog:
+    name: Update Version and Changelog
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@v1.16.6
+
+      - name: Install cargo-edit
+        run: cargo binstall --no-confirm --locked cargo-edit
+
+      - name: Update Cargo.toml version
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: cargo set-version "$VERSION"
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --tag ${{ github.event.inputs.version }} --verbose
+        env:
+          OUTPUT: CHANGELOG.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Generate release notes
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --tag ${{ github.event.inputs.version }} --verbose --unreleased
+        env:
+          OUTPUT: RELEASE_NOTES.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Upload release notes artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: RELEASE_NOTES.md
+          if-no-files-found: error
+
+      - name: Commit version changes
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock CHANGELOG.md
+          git commit -m "chore(release): prepare for $VERSION"
+          git push
+
+      - name: Create and push tag
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+
+      - name: Set version output
+        id: version
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Set tag output
+        id: tag
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+  create-github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    needs: [update-version-and-changelog]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.update-version-and-changelog.outputs.tag }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.update-version-and-changelog.outputs.tag }}
+          name: Release ${{ needs.update-version-and-changelog.outputs.tag }}
+          body_path: artifacts/release-notes/RELEASE_NOTES.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-to-crates-io:
+    name: Publish to Crates.io
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    needs: [update-version-and-changelog]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.update-version-and-changelog.outputs.tag }}
+
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      - run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}

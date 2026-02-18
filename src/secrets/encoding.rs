@@ -78,6 +78,7 @@ pub fn encode_password<'a>(password: &'a str) -> Cow<'a, str> {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn test_decode_hex_password() {
         let password = "go-keyring-encoded:616263";
@@ -85,6 +86,7 @@ mod tests {
         assert_eq!(decoded, Some("abc".to_string()));
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn test_decode_base64_password() {
         let password = "go-keyring-base64:YWJj";
@@ -99,6 +101,7 @@ mod tests {
         assert_eq!(decoded, Some("abc".to_string()));
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn test_encode_password() {
         let password = "abc";
