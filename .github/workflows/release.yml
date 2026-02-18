@@ -33,7 +33,7 @@ jobs:
           toolchain: stable
 
       - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@v1.16.6
+        uses: cargo-bins/cargo-binstall@v1.17.5
 
       - name: Install cargo-edit
         run: cargo binstall --no-confirm --locked cargo-edit
