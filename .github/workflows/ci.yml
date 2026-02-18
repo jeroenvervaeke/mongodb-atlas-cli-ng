@@ -53,11 +53,8 @@ jobs:
     - name: Publish dry run
       run: cargo publish --dry-run
 
-    - name: Run cargo udeps (package dependencies)
-      run: cargo +nightly udeps
-
-    - name: Run cargo udeps (dev dependencies)
-      run: cargo +nightly udeps --all-features --all-targets
+    - name: Run cargo udeps
+      run: cargo +nightly udeps --all-targets
 
   test-matrix:
     runs-on: ${{ matrix.os }}
