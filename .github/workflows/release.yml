@@ -134,6 +134,9 @@ jobs:
         with:
           ref: ${{ needs.update-version-and-changelog.outputs.tag }}
 
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev
+
       - uses: rust-lang/crates-io-auth-action@v1
         id: auth
 
