@@ -1091,7 +1091,7 @@ dependencies = [
 
 [[package]]
 name = "mongodb-atlas-cli"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "base64",
  "bytes",

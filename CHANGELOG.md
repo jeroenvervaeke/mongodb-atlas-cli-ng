@@ -1,3 +1,8 @@
+## [0.0.4] - 2026-02-18
+
+### 🐛 Bug Fixes
+
+- Install libdbus-1-dev in publish-to-crates-io job
 ## [0.0.3] - 2026-02-18
 
 ### 🚀 Features
