@@ -1,6 +1,6 @@
 [package]
 name = "mongodb-atlas-cli"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2024"
 authors = ["Jeroen Vervaeke <atlas-cli-ng.s29p5@simplelogin.com>"]
 description = "Opinionated alternative CLI and library to interact with the MongoDB Atlas Admin API"
