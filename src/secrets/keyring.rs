@@ -161,15 +161,21 @@ impl SecretStore for KeyringSecretStore {
                     KEY_SERVICE_ACCOUNT_CLIENT_SECRET,
                     &service_account.client_secret,
                 )?;
-                if let Some(token) = &service_account.access_token {
-                    set_keyring_value(profile_name, KEY_SERVICE_ACCOUNT_ACCESS_TOKEN, token)?;
+                match &service_account.access_token {
+                    Some(token) => {
+                        set_keyring_value(profile_name, KEY_SERVICE_ACCOUNT_ACCESS_TOKEN, token)?;
+                    }
+                    None => try_delete_entry(profile_name, KEY_SERVICE_ACCOUNT_ACCESS_TOKEN),
                 }
-                if let Some(expires_at) = service_account.token_expires_at {
-                    set_keyring_value(
-                        profile_name,
-                        KEY_SERVICE_ACCOUNT_TOKEN_EXPIRES_AT,
-                        &expires_at.to_string(),
-                    )?;
+                match service_account.token_expires_at {
+                    Some(expires_at) => {
+                        set_keyring_value(
+                            profile_name,
+                            KEY_SERVICE_ACCOUNT_TOKEN_EXPIRES_AT,
+                            &expires_at.to_string(),
+                        )?;
+                    }
+                    None => try_delete_entry(profile_name, KEY_SERVICE_ACCOUNT_TOKEN_EXPIRES_AT),
                 }
                 Ok(())
             }

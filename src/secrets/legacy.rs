@@ -127,14 +127,25 @@ impl SecretStore for LegacySecretStore {
                     "client_secret".to_string(),
                     service_account.client_secret.into(),
                 );
-                if let Some(token) = service_account.access_token {
-                    profile_table.insert("service_account_access_token".to_string(), token.into());
+                match service_account.access_token {
+                    Some(token) => {
+                        profile_table
+                            .insert("service_account_access_token".to_string(), token.into());
+                    }
+                    None => {
+                        profile_table.remove("service_account_access_token");
+                    }
                 }
-                if let Some(expires_at) = service_account.token_expires_at {
-                    profile_table.insert(
-                        "service_account_token_expires_at".to_string(),
-                        expires_at.to_string().into(),
-                    );
+                match service_account.token_expires_at {
+                    Some(expires_at) => {
+                        profile_table.insert(
+                            "service_account_token_expires_at".to_string(),
+                            expires_at.to_string().into(),
+                        );
+                    }
+                    None => {
+                        profile_table.remove("service_account_token_expires_at");
+                    }
                 }
             }
             Secret::UserAccount(user_account) => {
