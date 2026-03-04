@@ -66,8 +66,8 @@ impl<O: Operation> Operation for Paginated<O> {
         self.inner.version()
     }
 
-    fn body(&self) -> Bytes {
-        self.inner.body()
+    fn request_body(&self) -> Bytes {
+        self.inner.request_body()
     }
 }
 

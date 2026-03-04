@@ -132,7 +132,7 @@ where
                 .method(op.method())
                 .uri(uri)
                 .header(http::header::ACCEPT, accept)
-                .body(Full::new(op.body()))
+                .body(Full::new(op.request_body()))
                 .map_err(OperationError::BuildRequest)?;
 
             let mut inner = ready;

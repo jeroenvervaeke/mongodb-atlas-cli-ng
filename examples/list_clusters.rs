@@ -1,12 +1,10 @@
-//! Example: List clusters using the Operation layer.
-//!
-//! Demonstrates the `OperationLayer` which converts typed `Operation` structs
-//! into HTTP requests and deserializes the response automatically.
+//! Example: List clusters using `AtlasClient`.
 //!
 //! # Prerequisites
 //!
-//! Same as `use_client` — you need a valid Atlas CLI config with credentials
-//! and a `project_id` set in the profile.
+//! You need a valid Atlas CLI config at the default config path
+//! with credentials stored in the OS keychain or the legacy config file.
+//! The easiest way is to run `atlas auth login` with the official CLI first.
 //!
 //! # Usage
 //!
@@ -14,87 +12,68 @@
 //! cargo run --example list_clusters
 //! ```
 
-use http::{HeaderValue, header::USER_AGENT};
-use hyper_util::{client::legacy::Client, rt::TokioExecutor};
-use tower::{ServiceBuilder, ServiceExt};
-use tower_http::{decompression::DecompressionLayer, set_header::SetRequestHeaderLayer};
+use anyhow::{Context, Result};
+use http::Method;
+use serde::Deserialize;
 
-use mongodb_atlas_cli::{
-    atlas::{layer::OperationLayer, operations::ListGroupClusters, paginated::Paginated},
-    client::AuthenticationLayer,
-    config,
-    secrets::get_secret_store,
+use mongodb_atlas_cli::atlas::{
+    Operation, Version,
+    client::AtlasClient,
+    paginated::{Paginated, PaginatedResponse},
 };
 
+// Docs: https://www.mongodb.com/docs/api/doc/atlas-admin-api-v2/operation/operation-listgroupclusters
+struct ListGroupClusters {
+    group_id: String,
+}
+
+impl Operation for ListGroupClusters {
+    type Response = PaginatedResponse<ClusterSummary>;
+
+    fn method(&self) -> Method {
+        Method::GET
+    }
+
+    fn url(&self) -> String {
+        format!("/api/atlas/v2/groups/{}/clusters", self.group_id)
+    }
+
+    fn version(&self) -> Version {
+        Version::date(2024, 8, 5)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ClusterSummary {
+    name: String,
+}
+
 #[tokio::main]
-async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "mongodb_atlas_cli=info".parse().unwrap()),
-        )
-        .init();
+async fn main() -> Result<()> {
+    let client = AtlasClient::from_defaults().context("failed to create client")?;
 
-    rustls::crypto::ring::default_provider()
-        .install_default()
-        .expect("failed to install ring crypto provider");
-
-    let profile = "default";
-    let cfg = config::load_config(Some(profile)).unwrap_or_else(|e| {
-        eprintln!("Failed to load config: {e}");
-        std::process::exit(1);
-    });
-
-    let group_id = cfg.project_id.clone().unwrap_or_else(|| {
-        eprintln!("No project_id configured in profile '{profile}'");
-        std::process::exit(1);
-    });
-
-    let secret_store = get_secret_store().unwrap_or_else(|e| {
-        eprintln!("Failed to open secret store: {e}");
-        std::process::exit(1);
-    });
-
-    let auth_layer =
-        AuthenticationLayer::from_config(&cfg, profile, secret_store).unwrap_or_else(|e| {
-            eprintln!("Failed to create auth layer: {e}");
-            std::process::exit(1);
-        });
-
-    let https_connector = hyper_rustls::HttpsConnectorBuilder::new()
-        .with_webpki_roots()
-        .https_or_http()
-        .enable_http1()
-        .build();
-    let http_client = Client::builder(TokioExecutor::new()).build(https_connector);
-
-    let client = ServiceBuilder::new()
-        .layer(OperationLayer::new(cfg))
-        .layer(SetRequestHeaderLayer::overriding(
-            USER_AGENT,
-            HeaderValue::from_static("mongodb-atlas-cli-ng/0.0.1"),
-        ))
-        .layer(auth_layer)
-        .layer(DecompressionLayer::new())
-        .service(http_client);
+    let group_id = client
+        .config()
+        .project_id
+        .clone()
+        .context("no project_id configured in profile")?;
 
     let op = Paginated {
         inner: ListGroupClusters { group_id },
         pagination: Default::default(),
     };
 
-    match client.oneshot(op).await {
-        Ok(page) => {
-            if let Some(total) = page.total_count {
-                println!("Total clusters: {total}");
-            }
-            for cluster in &page.results {
-                println!("  - {}", cluster.name);
-            }
-            if page.has_next() {
-                println!("(more pages available)");
-            }
-        }
-        Err(e) => eprintln!("Request failed: {e}"),
+    let page = client.execute(op).await?;
+
+    if let Some(total) = page.total_count {
+        println!("Total clusters: {total}");
     }
+    for cluster in &page.results {
+        println!("  - {}", cluster.name);
+    }
+    if page.has_next() {
+        println!("(more pages available)");
+    }
+
+    Ok(())
 }

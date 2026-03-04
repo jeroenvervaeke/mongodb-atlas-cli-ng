@@ -1,12 +1,12 @@
 use bytes::Bytes;
 use http::Method;
 
-use crate::atlas::version::Version;
-
+pub mod client;
 pub mod layer;
-pub mod operations;
 pub mod paginated;
 mod version;
+
+pub use version::Version;
 
 pub trait Operation {
     type Response;
@@ -14,5 +14,7 @@ pub trait Operation {
     fn method(&self) -> Method;
     fn url(&self) -> String;
     fn version(&self) -> Version;
-    fn body(&self) -> Bytes;
+    fn request_body(&self) -> Bytes {
+        Bytes::new()
+    }
 }
