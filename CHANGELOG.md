@@ -1,3 +1,8 @@
+## [0.1.0] - 2026-03-04
+
+### 🚀 Features
+
+- Added atlas::AtlasClient (#14)
 ## [0.0.4] - 2026-02-18
 
 ### 🐛 Bug Fixes
