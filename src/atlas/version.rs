@@ -1,3 +1,4 @@
+use std::fmt;
 use std::str::FromStr;
 
 const PREFIX: &str = "application/vnd.atlas.";
@@ -9,6 +10,20 @@ pub enum Version {
     Date(VersionDate),
     Preview(VersionPreview),
     Upcoming(VersionUpcoming),
+}
+
+impl Version {
+    pub fn date(year: u16, month: u8, day: u8) -> Self {
+        Self::Date(VersionDate(Date { year, month, day }))
+    }
+
+    pub fn preview() -> Self {
+        Self::Preview(VersionPreview)
+    }
+
+    pub fn upcoming(year: u16, month: u8, day: u8) -> Self {
+        Self::Upcoming(VersionUpcoming(Date { year, month, day }))
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -26,7 +41,9 @@ impl TryFrom<&str> for Version {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         // Strip the prefix
         // We should be left with either: YYYY-MM-DD or preview or YYYY-MM-DD.upcoming
-        let value = value.strip_prefix(PREFIX).ok_or(VersionError::MissingPrefix)?;
+        let value = value
+            .strip_prefix(PREFIX)
+            .ok_or(VersionError::MissingPrefix)?;
 
         // Check if the value is a preview version
         if value == PREVIEW_SUFFIX {
@@ -39,7 +56,7 @@ impl TryFrom<&str> for Version {
         }
 
         // The value is a date
-        return Ok(Version::Date(VersionDate(Date::from_str(value)?)));
+        Ok(Version::Date(VersionDate(Date::from_str(value)?)))
     }
 }
 
@@ -66,8 +83,14 @@ pub enum DateError {
     InvalidDateFormat,
 }
 
-fn next_date_part<'a, T: FromStr, I: Iterator<Item = &'a str>>(parts: &mut I) -> Result<T, DateError> {
-    parts.next().ok_or(DateError::InvalidDateFormat)?.parse::<T>().map_err(|_| DateError::InvalidDateFormat)
+fn next_date_part<'a, T: FromStr, I: Iterator<Item = &'a str>>(
+    parts: &mut I,
+) -> Result<T, DateError> {
+    parts
+        .next()
+        .ok_or(DateError::InvalidDateFormat)?
+        .parse::<T>()
+        .map_err(|_| DateError::InvalidDateFormat)
 }
 
 impl TryFrom<&str> for Date {
@@ -95,6 +118,24 @@ pub struct VersionPreview;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct VersionUpcoming(Date);
+
+impl fmt::Display for Date {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:04}-{:02}-{:02}", self.year, self.month, self.day)
+    }
+}
+
+impl fmt::Display for Version {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Version::Date(VersionDate(date)) => write!(f, "{PREFIX}{date}"),
+            Version::Preview(_) => write!(f, "{PREFIX}{PREVIEW_SUFFIX}"),
+            Version::Upcoming(VersionUpcoming(date)) => {
+                write!(f, "{PREFIX}{date}{UPCOMING_SUFFIX}")
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -225,4 +266,3 @@ mod tests {
         assert!(matches!(err, DateError::InvalidDateFormat));
     }
 }
-
