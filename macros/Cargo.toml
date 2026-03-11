@@ -1,6 +1,6 @@
 [package]
 name = "mongodb-atlas-cli-macros"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Jeroen Vervaeke <atlas-cli-ng.s29p5@simplelogin.com>"]
 description = "Procedural macros for mongodb-atlas-cli operation derive"

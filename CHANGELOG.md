@@ -1,3 +1,8 @@
+## [0.2.0] - 2026-03-11
+
+### 🚀 Features
+
+- *(macros)* Add `#[operation]` proc-macro for declarative Atlas API operations (#17)
 ## [0.1.0] - 2026-03-04
 
 ### 🚀 Features
