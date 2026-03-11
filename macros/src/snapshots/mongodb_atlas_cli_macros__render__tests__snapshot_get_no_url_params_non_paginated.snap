@@ -1,0 +1,24 @@
+---
+source: macros/src/render.rs
+expression: formatted
+---
+mod __generated {
+    #[derive(Debug)]
+    struct GetClusterRequest {}
+    #[derive(Debug)]
+    pub struct GetClusterOperation {
+        pub body: GetClusterRequest,
+    }
+    impl ::mongodb_atlas_cli::atlas::Operation for GetClusterOperation {
+        type Response = Cluster;
+        fn method(&self) -> ::http::Method {
+            ::http::Method::GET
+        }
+        fn url(&self) -> String {
+            "/api/atlas/v2/clusters/foo".to_string()
+        }
+        fn version(&self) -> ::mongodb_atlas_cli::atlas::Version {
+            ::mongodb_atlas_cli::atlas::Version::date(2024u16, 8u8, 5u8)
+        }
+    }
+}

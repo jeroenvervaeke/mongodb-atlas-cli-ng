@@ -1,0 +1,36 @@
+---
+source: macros/src/render.rs
+expression: formatted
+---
+mod __generated {
+    #[derive(Debug)]
+    struct ListGroupClusterRequest {}
+    #[derive(Debug, Default)]
+    pub struct ListGroupClusterOperationUrlParams {
+        pub group_id: String,
+    }
+    #[derive(Debug)]
+    pub struct ListGroupClusterOperation {
+        pub url_parameters: ListGroupClusterOperationUrlParams,
+        pub pagination: ::mongodb_atlas_cli::atlas::paginated::PaginationRequest,
+        pub body: ListGroupClusterRequest,
+    }
+    impl ::mongodb_atlas_cli::atlas::Operation for ListGroupClusterOperation {
+        type Response = ::mongodb_atlas_cli::atlas::paginated::PaginatedResponse<
+            ClusterSummary,
+        >;
+        fn method(&self) -> ::http::Method {
+            ::http::Method::GET
+        }
+        fn url(&self) -> String {
+            let mut url = format!(
+                "/api/atlas/v2/groups/{}/clusters", self.url_parameters.group_id
+            );
+            self.pagination.append_to(&mut url);
+            url
+        }
+        fn version(&self) -> ::mongodb_atlas_cli::atlas::Version {
+            ::mongodb_atlas_cli::atlas::Version::date(2024u16, 8u8, 5u8)
+        }
+    }
+}

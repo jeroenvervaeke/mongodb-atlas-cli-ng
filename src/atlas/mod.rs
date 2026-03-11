@@ -1,6 +1,8 @@
 use bytes::Bytes;
 use http::Method;
 
+pub use mongodb_atlas_cli_macros::operation;
+
 pub mod client;
 pub mod layer;
 pub mod paginated;

@@ -1,0 +1,17 @@
+[package]
+name = "mongodb-atlas-cli-macros"
+version = "0.1.0"
+edition = "2021"
+description = "Procedural macros for mongodb-atlas-cli operation derive"
+
+[dependencies]
+syn = { version = "2", features = ["full", "extra-traits"] }
+quote = "1"
+proc-macro2 = "1"
+
+[dev-dependencies]
+insta = "1"
+prettyplease = "0.2"
+
+[lib]
+proc-macro = true

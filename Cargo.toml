@@ -1,3 +1,6 @@
+[workspace]
+members = ["macros"]
+
 [package]
 name = "mongodb-atlas-cli"
 version = "0.1.0"
@@ -13,6 +16,7 @@ categories = ["command-line-utilities", "database"]
 exclude = ["cliff.toml"]
 
 [dependencies]
+mongodb-atlas-cli-macros = { path = "macros" }
 base64 = "0.22.1"
 bytes = "1.11.1"
 config = "0.15.19"

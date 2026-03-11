@@ -1,0 +1,29 @@
+---
+source: macros/src/render.rs
+expression: formatted
+---
+mod __generated {
+    #[derive(Debug)]
+    struct CreateClusterRequest {}
+    #[derive(Debug, Default)]
+    pub struct CreateClusterOperationUrlParams {
+        pub group_id: String,
+    }
+    #[derive(Debug)]
+    pub struct CreateClusterOperation {
+        pub url_parameters: CreateClusterOperationUrlParams,
+        pub body: CreateClusterRequest,
+    }
+    impl ::mongodb_atlas_cli::atlas::Operation for CreateClusterOperation {
+        type Response = Cluster;
+        fn method(&self) -> ::http::Method {
+            ::http::Method::POST
+        }
+        fn url(&self) -> String {
+            format!("/api/atlas/v2/groups/{}/clusters", self.url_parameters.group_id)
+        }
+        fn version(&self) -> ::mongodb_atlas_cli::atlas::Version {
+            ::mongodb_atlas_cli::atlas::Version::date(2024u16, 8u8, 5u8)
+        }
+    }
+}

@@ -13,38 +13,19 @@
 //! ```
 
 use anyhow::{Context, Result};
-use http::Method;
 use serde::Deserialize;
 
-use mongodb_atlas_cli::atlas::{
-    Operation, Version,
-    client::AtlasClient,
-    paginated::{Paginated, PaginatedResponse},
-};
+use mongodb_atlas_cli::atlas::{client::AtlasClient, operation};
 
 // Docs: https://www.mongodb.com/docs/api/doc/atlas-admin-api-v2/operation/operation-listgroupclusters
-struct ListGroupClusters {
-    group_id: String,
-}
-
-impl Operation for ListGroupClusters {
-    type Response = PaginatedResponse<ClusterSummary>;
-
-    fn method(&self) -> Method {
-        Method::GET
-    }
-
-    fn url(&self) -> String {
-        format!("/api/atlas/v2/groups/{}/clusters", self.group_id)
-    }
-
-    fn version(&self) -> Version {
-        Version::date(2024, 8, 5)
-    }
-}
+#[derive(Debug)]
+#[operation(method = GET, version = "2024-08-05")]
+#[url("/api/atlas/v2/groups/{group_id}/clusters")]
+#[response(paginated, ClusterSummary)]
+struct ListGroupClusterRequest {}
 
 #[derive(Debug, Deserialize)]
-struct ClusterSummary {
+pub struct ClusterSummary {
     name: String,
 }
 
@@ -58,9 +39,12 @@ async fn main() -> Result<()> {
         .clone()
         .context("no project_id configured in profile")?;
 
-    let op = Paginated {
-        inner: ListGroupClusters { group_id },
+    let op = ListGroupClusterOperation {
+        url_parameters: ListGroupClusterOperationUrlParams {
+            group_id: group_id.clone(),
+        },
         pagination: Default::default(),
+        body: ListGroupClusterRequest {},
     };
 
     let page = client.execute(op).await?;
