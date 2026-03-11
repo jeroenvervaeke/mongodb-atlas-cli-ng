@@ -15,8 +15,23 @@ keywords = ["mongodb", "atlas", "cli", "atlas-cli"]
 categories = ["command-line-utilities", "database"]
 exclude = ["cliff.toml"]
 
+[[example]]
+name = "download_cluster_log"
+required-features = ["derive"]
+
+[[example]]
+name = "list_clusters"
+required-features = ["derive"]
+
+[[test]]
+name = "operation_macro"
+required-features = ["derive"]
+
+[features]
+derive = ["dep:mongodb-atlas-cli-macros"]
+
 [dependencies]
-mongodb-atlas-cli-macros = { path = "macros" }
+mongodb-atlas-cli-macros = { path = "macros", version = "0.1.0", optional = true }
 base64 = "0.22.1"
 bytes = "1.11.1"
 config = "0.15.19"

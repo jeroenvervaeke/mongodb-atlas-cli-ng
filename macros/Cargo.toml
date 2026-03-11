@@ -2,7 +2,11 @@
 name = "mongodb-atlas-cli-macros"
 version = "0.1.0"
 edition = "2021"
+authors = ["Jeroen Vervaeke <atlas-cli-ng.s29p5@simplelogin.com>"]
 description = "Procedural macros for mongodb-atlas-cli operation derive"
+license = "MIT"
+repository = "https://github.com/jeroenvervaeke/mongodb-atlas-cli-ng"
+homepage = "https://github.com/jeroenvervaeke/mongodb-atlas-cli-ng"
 
 [dependencies]
 syn = { version = "2", features = ["full", "extra-traits"] }

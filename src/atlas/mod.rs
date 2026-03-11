@@ -3,6 +3,7 @@ use std::fmt;
 use bytes::Bytes;
 use http::Method;
 
+#[cfg(feature = "derive")]
 pub use mongodb_atlas_cli_macros::operation;
 
 pub mod client;

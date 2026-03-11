@@ -50,8 +50,13 @@ jobs:
     - name: Build
       run: cargo build --verbose
 
-    - name: Publish dry run
-      run: cargo publish --dry-run
+    - name: Publish dry run (macros)
+      run: cargo publish --dry-run -p mongodb-atlas-cli-macros
+
+    # The main crate's dry-run requires mongodb-atlas-cli-macros to be on crates.io first.
+    # Re-enable once the macros crate is published.
+    # - name: Publish dry run (main)
+    #   run: cargo publish --dry-run -p mongodb-atlas-cli
 
     - name: Run cargo udeps
       run: cargo +nightly udeps --all-targets
