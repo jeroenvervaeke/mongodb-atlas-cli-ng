@@ -59,7 +59,7 @@ jobs:
     #   run: cargo publish --dry-run -p mongodb-atlas-cli
 
     - name: Run cargo udeps
-      run: cargo +nightly udeps --all-targets
+      run: cargo +nightly udeps --all-targets --features derive
 
   test-matrix:
     runs-on: ${{ matrix.os }}
