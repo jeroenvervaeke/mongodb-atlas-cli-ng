@@ -1,3 +1,6 @@
+[workspace]
+members = ["macros"]
+
 [package]
 name = "mongodb-atlas-cli"
 version = "0.1.0"
@@ -12,7 +15,23 @@ keywords = ["mongodb", "atlas", "cli", "atlas-cli"]
 categories = ["command-line-utilities", "database"]
 exclude = ["cliff.toml"]
 
+[[example]]
+name = "download_cluster_log"
+required-features = ["derive"]
+
+[[example]]
+name = "list_clusters"
+required-features = ["derive"]
+
+[[test]]
+name = "operation_macro"
+required-features = ["derive"]
+
+[features]
+derive = ["dep:mongodb-atlas-cli-macros", "dep:typed-builder"]
+
 [dependencies]
+mongodb-atlas-cli-macros = { path = "macros", version = "0.1.0", optional = true }
 base64 = "0.22.1"
 bytes = "1.11.1"
 config = "0.15.19"
@@ -35,6 +54,7 @@ tower = "0.5.3"
 tower-http = { version = "0.6.8", features = ["full"] }
 tracing = "0.1"
 url = "2.5.8"
+typed-builder = { version = "0.23.2", optional = true }
 
 [dev-dependencies]
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -43,3 +63,4 @@ pretty_assertions = "1.4.1"
 tempfile = "3.26.0"
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0.102"
+clap = { version = "4.5.60", features = ["derive"] }

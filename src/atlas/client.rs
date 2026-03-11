@@ -4,7 +4,6 @@ use http_body_util::Full;
 use hyper_rustls::HttpsConnector;
 use hyper_util::client::legacy::{Client, connect::HttpConnector};
 use hyper_util::rt::TokioExecutor;
-use serde::de::DeserializeOwned;
 use tower::{ServiceBuilder, ServiceExt};
 use tower_http::{decompression::DecompressionLayer, set_header::SetRequestHeaderLayer};
 
@@ -68,11 +67,10 @@ impl AtlasClient {
         Self::with_profile("default")
     }
 
-    /// Execute an [`Operation`] and return the deserialized response.
+    /// Execute an [`Operation`] and return its response.
     pub async fn execute<O>(&self, op: O) -> Result<O::Response, OperationError>
     where
         O: Operation + Send + 'static,
-        O::Response: DeserializeOwned,
     {
         let svc = ServiceBuilder::new()
             .layer(OperationLayer::new(self.config.clone()))

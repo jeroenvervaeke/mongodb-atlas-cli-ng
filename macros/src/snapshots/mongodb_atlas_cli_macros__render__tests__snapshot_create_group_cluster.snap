@@ -1,0 +1,47 @@
+---
+source: macros/src/render.rs
+assertion_line: 399
+expression: formatted
+---
+mod __generated {
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[derive(::serde::Serialize)]
+    struct CreateGroupClusterRequest {}
+    #[derive(Debug, Default, Clone, PartialEq, Eq)]
+    #[derive(::typed_builder::TypedBuilder)]
+    pub struct CreateGroupClusterOperationUrlParams {
+        pub group_id: String,
+    }
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[derive(::typed_builder::TypedBuilder)]
+    pub struct CreateGroupClusterOperation {
+        pub url_parameters: CreateGroupClusterOperationUrlParams,
+        pub body: CreateGroupClusterRequest,
+    }
+    impl ::mongodb_atlas_cli::atlas::Operation for CreateGroupClusterOperation {
+        type Response = ClusterDescription20240805;
+        fn method(&self) -> ::http::Method {
+            ::http::Method::POST
+        }
+        fn url(&self) -> String {
+            format!("/api/atlas/v2/groups/{}/clusters", self.url_parameters.group_id)
+        }
+        fn version(&self) -> ::mongodb_atlas_cli::atlas::Version {
+            ::mongodb_atlas_cli::atlas::Version::date(2024u16, 10u8, 23u8)
+        }
+        fn parse_response(
+            bytes: ::bytes::Bytes,
+        ) -> ::std::result::Result<
+            Self::Response,
+            ::mongodb_atlas_cli::atlas::OperationError,
+        > {
+            ::serde_json::from_slice(&bytes)
+                .map_err(::mongodb_atlas_cli::atlas::OperationError::Deserialize)
+        }
+        fn request_body(&self) -> ::bytes::Bytes {
+            ::serde_json::to_vec(&self.body)
+                .map(::bytes::Bytes::from)
+                .unwrap_or_default()
+        }
+    }
+}

@@ -1,0 +1,45 @@
+---
+source: macros/src/render.rs
+assertion_line: 367
+expression: formatted
+---
+mod __generated {
+    #[allow(dead_code)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct DeleteGroupClusterRequest {}
+    #[derive(Debug, Default, Clone, PartialEq, Eq)]
+    #[derive(::typed_builder::TypedBuilder)]
+    pub struct DeleteGroupClusterOperationUrlParams {
+        pub group_id: String,
+        pub cluster_name: String,
+    }
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[derive(::typed_builder::TypedBuilder)]
+    pub struct DeleteGroupClusterOperation {
+        pub url_parameters: DeleteGroupClusterOperationUrlParams,
+    }
+    impl ::mongodb_atlas_cli::atlas::Operation for DeleteGroupClusterOperation {
+        type Response = ();
+        fn method(&self) -> ::http::Method {
+            ::http::Method::DELETE
+        }
+        fn url(&self) -> String {
+            format!(
+                "/api/atlas/v2/groups/{}/clusters/{}", self.url_parameters.group_id, self
+                .url_parameters.cluster_name
+            )
+        }
+        fn version(&self) -> ::mongodb_atlas_cli::atlas::Version {
+            ::mongodb_atlas_cli::atlas::Version::date(2023u16, 2u8, 1u8)
+        }
+        fn parse_response(
+            bytes: ::bytes::Bytes,
+        ) -> ::std::result::Result<
+            Self::Response,
+            ::mongodb_atlas_cli::atlas::OperationError,
+        > {
+            ::serde_json::from_slice(&bytes)
+                .map_err(::mongodb_atlas_cli::atlas::OperationError::Deserialize)
+        }
+    }
+}
