@@ -13,6 +13,8 @@ pub struct ParsedInput {
     pub url_param_names: Vec<String>,
     pub is_paginated: bool,
     pub response_type: String,
+    /// "json" (default) or "gzip"
+    pub response_format: String,
 }
 
 /// Extract URL parameter names from a template string, e.g. "/groups/{group_id}/x" -> ["group_id"].
@@ -42,7 +44,14 @@ fn parse_url_attr(attr: &Attribute) -> Option<String> {
     None
 }
 
-fn parse_response_attr(attr: &Attribute) -> Option<(bool, String)> {
+/// Returns `(is_paginated, response_type, response_format)`.
+///
+/// The `#[response]` attribute accepts an optional comma-separated list of modifiers
+/// (`paginated`, `gzip`) followed by the response type:
+///   - `#[response(TypeName)]`
+///   - `#[response(paginated, TypeName)]`
+///   - `#[response(gzip, bytes::Bytes)]`
+fn parse_response_attr(attr: &Attribute) -> Option<(bool, String, String)> {
     let Meta::List(list) = attr.meta.clone() else {
         return None;
     };
@@ -50,31 +59,39 @@ fn parse_response_attr(attr: &Attribute) -> Option<(bool, String)> {
         return None;
     }
     struct ResponseArgs {
-        first: Path,
-        second: Option<Path>,
+        paths: Vec<Path>,
     }
     impl Parse for ResponseArgs {
         fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-            let first: Path = input.parse()?;
-            let second = if input.peek(Token![,]) {
-                input.parse::<Token![,]>()?;
-                Some(input.parse()?)
-            } else {
-                None
-            };
-            Ok(ResponseArgs { first, second })
+            let mut paths = Vec::new();
+            while !input.is_empty() {
+                paths.push(input.parse::<Path>()?);
+                if input.peek(Token![,]) {
+                    input.parse::<Token![,]>()?;
+                }
+            }
+            Ok(ResponseArgs { paths })
         }
     }
     let args: ResponseArgs = parse2(list.tokens).ok()?;
-    let is_paginated = args.first.is_ident("paginated");
-    let response_type = if is_paginated {
-        args.second
-            .map(|p| p.to_token_stream().to_string())
-            .unwrap_or_default()
-    } else {
-        args.first.to_token_stream().to_string()
-    };
-    Some((is_paginated, response_type))
+    let is_paginated = args.paths.iter().any(|p| p.is_ident("paginated"));
+    let is_gzip = args.paths.iter().any(|p| p.is_ident("gzip"));
+    // The response type is the last path that isn't a known modifier keyword.
+    // Gzip responses always use `bytes::Bytes`; an explicit type is not required.
+    let response_type = args
+        .paths
+        .iter()
+        .rfind(|p| !p.is_ident("paginated") && !p.is_ident("gzip"))
+        .map(|p| p.to_token_stream().to_string())
+        .unwrap_or_else(|| {
+            if is_gzip {
+                "bytes::Bytes".to_string()
+            } else {
+                String::new()
+            }
+        });
+    let response_format = if is_gzip { "gzip" } else { "json" }.to_string();
+    Some((is_paginated, response_type, response_format))
 }
 
 struct OperationAttrArgs {
@@ -125,14 +142,16 @@ pub fn parse(attr: proc_macro2::TokenStream, item: ItemStruct) -> syn::Result<Pa
     let mut url_template = None;
     let mut is_paginated = None;
     let mut response_type = None;
+    let mut response_format = None;
 
     for attr in &item.attrs {
         if let Some(url) = parse_url_attr(attr) {
             url_template = Some(url);
         }
-        if let Some((pag, ty)) = parse_response_attr(attr) {
+        if let Some((pag, ty, fmt)) = parse_response_attr(attr) {
             is_paginated = Some(pag);
             response_type = Some(ty);
+            response_format = Some(fmt);
         }
     }
 
@@ -143,6 +162,7 @@ pub fn parse(attr: proc_macro2::TokenStream, item: ItemStruct) -> syn::Result<Pa
     let response_type = response_type.ok_or_else(|| {
         syn::Error::new_spanned(&item.ident, "missing response type in #[response]")
     })?;
+    let response_format = response_format.unwrap_or_else(|| "json".to_string());
 
     let url_param_names = extract_url_param_names(&url_template);
 
@@ -154,6 +174,7 @@ pub fn parse(attr: proc_macro2::TokenStream, item: ItemStruct) -> syn::Result<Pa
         url_param_names,
         is_paginated,
         response_type,
+        response_format,
     })
 }
 

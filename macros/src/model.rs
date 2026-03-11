@@ -14,6 +14,14 @@ pub enum VersionKind {
     Upcoming { year: u16, month: u8, day: u8 },
 }
 
+/// Response encoding format: drives the `Accept` header suffix and `response_type()` impl.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ResponseFormat {
+    #[default]
+    Json,
+    Gzip,
+}
+
 /// A generated struct (e.g. UrlParams or Operation).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeneratedStruct {
@@ -39,6 +47,7 @@ pub struct GeneratedOperationImpl {
     pub url_param_names: Vec<String>,
     pub is_paginated: bool,
     pub response_type: String,
+    pub response_format: ResponseFormat,
     pub version: VersionKind,
 }
 
@@ -156,6 +165,11 @@ impl GeneratedCode {
 
         let url_format_string = url_template_to_format_string(&ir.url_template);
         let version = parse_version(&ir.version_str).unwrap_or(VersionKind::Preview);
+        let response_format = if ir.response_format == "gzip" {
+            ResponseFormat::Gzip
+        } else {
+            ResponseFormat::Json
+        };
 
         GeneratedCode {
             original_struct_name: ir.struct_name.clone(),
@@ -172,6 +186,7 @@ impl GeneratedCode {
                 url_param_names: ir.url_param_names,
                 is_paginated: ir.is_paginated,
                 response_type: ir.response_type,
+                response_format,
                 version,
             },
         }
@@ -198,6 +213,7 @@ mod tests {
             url_param_names: extract_url_param_names(url_template),
             is_paginated,
             response_type: response_type.to_string(),
+            response_format: "json".to_string(),
         }
     }
 

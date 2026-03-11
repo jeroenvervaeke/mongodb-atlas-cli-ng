@@ -4,7 +4,9 @@ use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
 use syn::parse_str;
 
-use crate::model::{GeneratedCode, GeneratedOperationImpl, GeneratedStruct, VersionKind};
+use crate::model::{
+    GeneratedCode, GeneratedOperationImpl, GeneratedStruct, ResponseFormat, VersionKind,
+};
 
 fn strip_consumed_attrs(attrs: &[syn::Attribute]) -> Vec<syn::Attribute> {
     attrs
@@ -96,7 +98,7 @@ fn emit_url_params_struct(s: &GeneratedStruct) -> TokenStream {
     }
 }
 
-fn emit_operation_impl(impl_: &GeneratedOperationImpl) -> TokenStream {
+fn emit_operation_impl(impl_: &GeneratedOperationImpl, has_body: bool) -> TokenStream {
     let struct_name = syn::Ident::new(&impl_.struct_name, proc_macro2::Span::call_site());
     let method = syn::Ident::new(&impl_.method, proc_macro2::Span::call_site());
     let response_type = path_from_type_string(&impl_.response_type);
@@ -142,6 +144,47 @@ fn emit_operation_impl(impl_: &GeneratedOperationImpl) -> TokenStream {
         }
     };
 
+    let request_body_impl = if has_body {
+        quote! {
+            fn request_body(&self) -> ::bytes::Bytes {
+                ::serde_json::to_vec(&self.body)
+                    .map(::bytes::Bytes::from)
+                    .unwrap_or_default()
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let response_type_impl = match impl_.response_format {
+        ResponseFormat::Json => quote! {},
+        ResponseFormat::Gzip => quote! {
+            fn response_type(&self) -> ::mongodb_atlas_cli::atlas::ResponseType {
+                ::mongodb_atlas_cli::atlas::ResponseType::Gzip
+            }
+        },
+    };
+
+    let parse_response_impl = match impl_.response_format {
+        ResponseFormat::Json => quote! {
+            fn parse_response(
+                bytes: ::bytes::Bytes,
+            ) -> ::std::result::Result<Self::Response, ::mongodb_atlas_cli::atlas::OperationError>
+            {
+                ::serde_json::from_slice(&bytes)
+                    .map_err(::mongodb_atlas_cli::atlas::OperationError::Deserialize)
+            }
+        },
+        ResponseFormat::Gzip => quote! {
+            fn parse_response(
+                bytes: ::bytes::Bytes,
+            ) -> ::std::result::Result<Self::Response, ::mongodb_atlas_cli::atlas::OperationError>
+            {
+                ::std::result::Result::Ok(bytes)
+            }
+        },
+    };
+
     quote! {
         impl ::mongodb_atlas_cli::atlas::Operation for #struct_name {
             type Response = #response_ty;
@@ -157,6 +200,12 @@ fn emit_operation_impl(impl_: &GeneratedOperationImpl) -> TokenStream {
             fn version(&self) -> ::mongodb_atlas_cli::atlas::Version {
                 #version
             }
+
+            #response_type_impl
+
+            #parse_response_impl
+
+            #request_body_impl
         }
     }
 }
@@ -185,12 +234,17 @@ pub fn render(code: &GeneratedCode, original: &syn::ItemStruct) -> TokenStream {
         .into_iter()
         .collect();
     let operation_struct = emit_operation_struct(&code.operation_struct, derive_attrs);
-    let operation_impl = emit_operation_impl(&code.operation_impl);
+    let operation_impl = emit_operation_impl(&code.operation_impl, code.has_body);
 
     let mut item = original.clone();
     item.attrs = strip_consumed_attrs(&original.attrs);
 
-    if !code.has_body {
+    if code.has_body {
+        // Body structs are serialized and sent as JSON; inject Serialize automatically
+        // so users don't have to add it manually.
+        let serialize: syn::Attribute = syn::parse_quote!(#[derive(::serde::Serialize)]);
+        item.attrs.push(serialize);
+    } else {
         // For GET/DELETE there is no body field referencing this struct, so inject
         // #[allow(dead_code)] into the generated output so the user can still
         // derive traits without seeing a dead_code warning in their own source.
@@ -225,6 +279,26 @@ mod tests {
         is_paginated: bool,
         response_type: &str,
     ) -> ParsedInput {
+        parsed_with_format(
+            struct_name,
+            method,
+            version,
+            url_template,
+            is_paginated,
+            response_type,
+            "json",
+        )
+    }
+
+    fn parsed_with_format(
+        struct_name: &str,
+        method: &str,
+        version: &str,
+        url_template: &str,
+        is_paginated: bool,
+        response_type: &str,
+        response_format: &str,
+    ) -> ParsedInput {
         ParsedInput {
             struct_name: struct_name.to_string(),
             method: method.to_string(),
@@ -233,6 +307,7 @@ mod tests {
             url_param_names: crate::parse::extract_url_param_names(url_template),
             is_paginated,
             response_type: response_type.to_string(),
+            response_format: response_format.to_string(),
         }
     }
 
@@ -304,6 +379,39 @@ mod tests {
         );
         let code = GeneratedCode::from_parsed(ir);
         let original = minimal_struct("UpdateGroupClusterRequest");
+        let formatted = render_to_formatted_string(&code, &original);
+        insta::assert_snapshot!(formatted);
+    }
+
+    #[test]
+    fn snapshot_create_group_cluster() {
+        let ir = parsed(
+            "CreateGroupClusterRequest",
+            "POST",
+            "2024-10-23",
+            "/api/atlas/v2/groups/{group_id}/clusters",
+            false,
+            "ClusterDescription20240805",
+        );
+        let code = GeneratedCode::from_parsed(ir);
+        let original = minimal_struct("CreateGroupClusterRequest");
+        let formatted = render_to_formatted_string(&code, &original);
+        insta::assert_snapshot!(formatted);
+    }
+
+    #[test]
+    fn snapshot_download_group_cluster_log() {
+        let ir = parsed_with_format(
+            "DownloadGroupClusterLogRequest",
+            "GET",
+            "2023-02-01",
+            "/api/atlas/v2/groups/{group_id}/clusters/{host_name}/logs/{log_name}.gz",
+            false,
+            "bytes :: Bytes", // defaulted automatically when gzip is used
+            "gzip",
+        );
+        let code = GeneratedCode::from_parsed(ir);
+        let original = minimal_struct("DownloadGroupClusterLogRequest");
         let formatted = render_to_formatted_string(&code, &original);
         insta::assert_snapshot!(formatted);
     }

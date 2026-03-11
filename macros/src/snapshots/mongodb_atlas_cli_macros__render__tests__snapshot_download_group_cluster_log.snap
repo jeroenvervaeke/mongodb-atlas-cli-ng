@@ -1,36 +1,40 @@
 ---
 source: macros/src/render.rs
-assertion_line: 367
+assertion_line: 416
 expression: formatted
 ---
 mod __generated {
     #[allow(dead_code)]
     #[derive(Debug, Clone, PartialEq, Eq)]
-    struct DeleteGroupClusterRequest {}
+    struct DownloadGroupClusterLogRequest {}
     #[derive(Debug, Default, Clone, PartialEq, Eq)]
     #[derive(::typed_builder::TypedBuilder)]
-    pub struct DeleteGroupClusterOperationUrlParams {
+    pub struct DownloadGroupClusterLogOperationUrlParams {
         pub group_id: String,
-        pub cluster_name: String,
+        pub host_name: String,
+        pub log_name: String,
     }
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[derive(::typed_builder::TypedBuilder)]
-    pub struct DeleteGroupClusterOperation {
-        pub url_parameters: DeleteGroupClusterOperationUrlParams,
+    pub struct DownloadGroupClusterLogOperation {
+        pub url_parameters: DownloadGroupClusterLogOperationUrlParams,
     }
-    impl ::mongodb_atlas_cli::atlas::Operation for DeleteGroupClusterOperation {
-        type Response = ();
+    impl ::mongodb_atlas_cli::atlas::Operation for DownloadGroupClusterLogOperation {
+        type Response = bytes::Bytes;
         fn method(&self) -> ::http::Method {
-            ::http::Method::DELETE
+            ::http::Method::GET
         }
         fn url(&self) -> String {
             format!(
-                "/api/atlas/v2/groups/{}/clusters/{}", self.url_parameters.group_id, self
-                .url_parameters.cluster_name
+                "/api/atlas/v2/groups/{}/clusters/{}/logs/{}.gz", self.url_parameters
+                .group_id, self.url_parameters.host_name, self.url_parameters.log_name
             )
         }
         fn version(&self) -> ::mongodb_atlas_cli::atlas::Version {
             ::mongodb_atlas_cli::atlas::Version::date(2023u16, 2u8, 1u8)
+        }
+        fn response_type(&self) -> ::mongodb_atlas_cli::atlas::ResponseType {
+            ::mongodb_atlas_cli::atlas::ResponseType::Gzip
         }
         fn parse_response(
             bytes: ::bytes::Bytes,
@@ -38,8 +42,7 @@ mod __generated {
             Self::Response,
             ::mongodb_atlas_cli::atlas::OperationError,
         > {
-            ::serde_json::from_slice(&bytes)
-                .map_err(::mongodb_atlas_cli::atlas::OperationError::Deserialize)
+            ::std::result::Result::Ok(bytes)
         }
     }
 }

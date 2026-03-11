@@ -7,7 +7,7 @@ use bytes::Bytes;
 use http::{Request, Response, StatusCode};
 use http_body::Body;
 use http_body_util::{BodyExt, Full};
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::Deserialize;
 use tower::{Layer, Service};
 
 use super::Operation;
@@ -90,9 +90,9 @@ impl<S: Clone> Layer<S> for OperationLayer {
 ///
 /// For each incoming operation it:
 /// 1. Joins the config's `base_url` with the operation's path
-/// 2. Builds an HTTP request with the correct method, `Accept` header, and body
+/// 2. Builds an HTTP request with the correct method, `Accept` and `Content-Type` headers, and body
 /// 3. Forwards the request to the inner service
-/// 4. Deserializes the JSON response body into `Operation::Response`
+/// 4. Converts the response body into `Operation::Response` via `Operation::parse_response`
 #[derive(Clone)]
 pub struct OperationService<S> {
     inner: S,
@@ -102,7 +102,6 @@ pub struct OperationService<S> {
 impl<S, O, ResBody> Service<O> for OperationService<S>
 where
     O: Operation + Send + 'static,
-    O::Response: DeserializeOwned,
     S: Service<Request<Full<Bytes>>, Response = Response<ResBody>> + Clone + Send + 'static,
     S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
     S::Future: Send,
@@ -126,13 +125,22 @@ where
         let ready = std::mem::replace(&mut self.inner, clone);
 
         Box::pin(async move {
-            let accept = format!("{}+json", op.version());
+            let version = op.version();
+            let accept = format!("{}+{}", version, op.response_type());
+            let content_type = format!("{}+json", version);
+            let body = op.request_body();
 
-            let request = Request::builder()
+            let mut builder = Request::builder()
                 .method(op.method())
                 .uri(uri)
-                .header(http::header::ACCEPT, accept)
-                .body(Full::new(op.request_body()))
+                .header(http::header::ACCEPT, &accept);
+
+            if !body.is_empty() {
+                builder = builder.header(http::header::CONTENT_TYPE, &content_type);
+            }
+
+            let request = builder
+                .body(Full::new(body))
                 .map_err(OperationError::BuildRequest)?;
 
             let mut inner = ready;
@@ -159,7 +167,7 @@ where
                 });
             }
 
-            serde_json::from_slice(&body).map_err(OperationError::Deserialize)
+            O::parse_response(body)
         })
     }
 }

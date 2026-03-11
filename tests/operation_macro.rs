@@ -1,6 +1,7 @@
 //! Integration tests for the `#[operation]` macro: generated code compiles and behaves correctly.
 
 use http::Method;
+use serde::Deserialize;
 
 use mongodb_atlas_cli::atlas::{Operation, operation};
 
@@ -11,6 +12,7 @@ use mongodb_atlas_cli::atlas::{Operation, operation};
 struct ListGroupClusterRequest {}
 
 #[allow(dead_code)]
+#[derive(Deserialize)]
 pub struct ClusterSummary {
     name: String,
 }

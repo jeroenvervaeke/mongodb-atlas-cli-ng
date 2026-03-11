@@ -12,7 +12,8 @@ use syn::parse_macro_input;
 ///
 /// Requires companion attributes:
 /// - `#[url("/path/{param}/...")]` — URL template with optional `{param}` placeholders
-/// - `#[response(Type)]` or `#[response(paginated, Type)]` — response type (paginated = list endpoint)
+/// - `#[response(Type)]` or `#[response(paginated, Type)]` — JSON response; `paginated` = list endpoint
+/// - `#[response(gzip)]` — binary (gzip) download; response type is always `bytes::Bytes`
 ///
 /// Example:
 ///

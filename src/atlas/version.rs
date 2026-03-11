@@ -244,6 +244,52 @@ mod tests {
     }
 
     #[test]
+    fn version_display_date() {
+        assert_eq!(
+            Version::date(2024, 10, 23).to_string(),
+            "application/vnd.atlas.2024-10-23"
+        );
+    }
+
+    #[test]
+    fn version_display_date_pads_month_and_day() {
+        assert_eq!(
+            Version::date(2024, 1, 5).to_string(),
+            "application/vnd.atlas.2024-01-05"
+        );
+    }
+
+    #[test]
+    fn version_display_preview() {
+        assert_eq!(
+            Version::preview().to_string(),
+            "application/vnd.atlas.preview"
+        );
+    }
+
+    #[test]
+    fn version_display_upcoming() {
+        assert_eq!(
+            Version::upcoming(2024, 10, 23).to_string(),
+            "application/vnd.atlas.2024-10-23.upcoming"
+        );
+    }
+
+    #[test]
+    fn version_display_roundtrips_with_parse() {
+        let versions = [
+            Version::date(2024, 10, 23),
+            Version::preview(),
+            Version::upcoming(2025, 3, 1),
+        ];
+        for v in versions {
+            let s = v.to_string();
+            let parsed: Version = s.parse().unwrap();
+            assert_eq!(v, parsed);
+        }
+    }
+
+    #[test]
     fn date_parse_valid() {
         let _ = Date::from_str("2024-01-15").unwrap();
     }

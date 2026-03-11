@@ -1,6 +1,6 @@
 ---
 source: macros/src/render.rs
-assertion_line: 276
+assertion_line: 351
 expression: formatted
 ---
 mod __generated {
@@ -35,6 +35,15 @@ mod __generated {
         }
         fn version(&self) -> ::mongodb_atlas_cli::atlas::Version {
             ::mongodb_atlas_cli::atlas::Version::date(2024u16, 8u8, 5u8)
+        }
+        fn parse_response(
+            bytes: ::bytes::Bytes,
+        ) -> ::std::result::Result<
+            Self::Response,
+            ::mongodb_atlas_cli::atlas::OperationError,
+        > {
+            ::serde_json::from_slice(&bytes)
+                .map_err(::mongodb_atlas_cli::atlas::OperationError::Deserialize)
         }
     }
 }

@@ -1,10 +1,11 @@
 ---
 source: macros/src/render.rs
-assertion_line: 308
+assertion_line: 383
 expression: formatted
 ---
 mod __generated {
     #[derive(Debug, Clone, PartialEq, Eq)]
+    #[derive(::serde::Serialize)]
     struct UpdateGroupClusterRequest {}
     #[derive(Debug, Default, Clone, PartialEq, Eq)]
     #[derive(::typed_builder::TypedBuilder)]
@@ -31,6 +32,20 @@ mod __generated {
         }
         fn version(&self) -> ::mongodb_atlas_cli::atlas::Version {
             ::mongodb_atlas_cli::atlas::Version::date(2024u16, 10u8, 23u8)
+        }
+        fn parse_response(
+            bytes: ::bytes::Bytes,
+        ) -> ::std::result::Result<
+            Self::Response,
+            ::mongodb_atlas_cli::atlas::OperationError,
+        > {
+            ::serde_json::from_slice(&bytes)
+                .map_err(::mongodb_atlas_cli::atlas::OperationError::Deserialize)
+        }
+        fn request_body(&self) -> ::bytes::Bytes {
+            ::serde_json::to_vec(&self.body)
+                .map(::bytes::Bytes::from)
+                .unwrap_or_default()
         }
     }
 }
