@@ -1,23 +1,27 @@
 ---
 source: macros/src/render.rs
+assertion_line: 276
 expression: formatted
 ---
 mod __generated {
-    #[derive(Debug)]
-    struct ListGroupClusterRequest {}
-    #[derive(Debug, Default)]
-    pub struct ListGroupClusterOperationUrlParams {
+    #[allow(dead_code)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct ListGroupClustersRequest {}
+    #[derive(Debug, Default, Clone, PartialEq, Eq)]
+    #[derive(::typed_builder::TypedBuilder)]
+    pub struct ListGroupClustersOperationUrlParams {
         pub group_id: String,
     }
-    #[derive(Debug)]
-    pub struct ListGroupClusterOperation {
-        pub url_parameters: ListGroupClusterOperationUrlParams,
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[derive(::typed_builder::TypedBuilder)]
+    pub struct ListGroupClustersOperation {
+        pub url_parameters: ListGroupClustersOperationUrlParams,
+        #[builder(default)]
         pub pagination: ::mongodb_atlas_cli::atlas::paginated::PaginationRequest,
-        pub body: ListGroupClusterRequest,
     }
-    impl ::mongodb_atlas_cli::atlas::Operation for ListGroupClusterOperation {
+    impl ::mongodb_atlas_cli::atlas::Operation for ListGroupClustersOperation {
         type Response = ::mongodb_atlas_cli::atlas::paginated::PaginatedResponse<
-            ClusterSummary,
+            ClusterDescription20240805,
         >;
         fn method(&self) -> ::http::Method {
             ::http::Method::GET

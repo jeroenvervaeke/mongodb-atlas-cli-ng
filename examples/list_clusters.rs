@@ -39,13 +39,13 @@ async fn main() -> Result<()> {
         .clone()
         .context("no project_id configured in profile")?;
 
-    let op = ListGroupClusterOperation {
-        url_parameters: ListGroupClusterOperationUrlParams {
-            group_id: group_id.clone(),
-        },
-        pagination: Default::default(),
-        body: ListGroupClusterRequest {},
-    };
+    let op = ListGroupClusterOperation::builder()
+        .url_parameters(
+            ListGroupClusterOperationUrlParams::builder()
+                .group_id(group_id.clone())
+                .build(),
+        )
+        .build();
 
     let page = client.execute(op).await?;
 

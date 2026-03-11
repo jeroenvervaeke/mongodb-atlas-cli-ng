@@ -2,7 +2,7 @@
 
 use http::Method;
 
-use mongodb_atlas_cli::atlas::{operation, Operation};
+use mongodb_atlas_cli::atlas::{Operation, operation};
 
 #[derive(Debug)]
 #[operation(method = GET, version = "2024-08-05")]
@@ -22,7 +22,6 @@ fn generated_operation_has_correct_method() {
             group_id: "my-group".to_string(),
         },
         pagination: Default::default(),
-        body: ListGroupClusterRequest {},
     };
     assert_eq!(op.method(), Method::GET);
 }
@@ -34,7 +33,6 @@ fn generated_operation_builds_url_with_params() {
             group_id: "abc123".to_string(),
         },
         pagination: Default::default(),
-        body: ListGroupClusterRequest {},
     };
     let url = op.url();
     assert!(url.contains("/groups/abc123/clusters"), "url = {}", url);
@@ -47,7 +45,6 @@ fn generated_operation_version() {
             group_id: "x".to_string(),
         },
         pagination: Default::default(),
-        body: ListGroupClusterRequest {},
     };
     let v = op.version();
     let s = v.to_string();

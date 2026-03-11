@@ -27,6 +27,7 @@ pub struct GeneratedField {
     pub name: String,
     pub ty: String,
     pub is_public: bool,
+    pub builder_default: bool,
 }
 
 /// The impl block for Operation.
@@ -45,6 +46,7 @@ pub struct GeneratedOperationImpl {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeneratedCode {
     pub original_struct_name: String,
+    pub has_body: bool,
     pub url_params_struct: Option<GeneratedStruct>,
     pub operation_struct: GeneratedStruct,
     pub operation_impl: GeneratedOperationImpl,
@@ -98,9 +100,7 @@ fn parse_date(s: &str) -> Option<(u16, u8, u8)> {
 
 /// Base name for generated types: strip "Request" suffix if present.
 fn base_name(struct_name: &str) -> &str {
-    struct_name
-        .strip_suffix("Request")
-        .unwrap_or(struct_name)
+    struct_name.strip_suffix("Request").unwrap_or(struct_name)
 }
 
 impl GeneratedCode {
@@ -121,6 +121,7 @@ impl GeneratedCode {
                         name: n.clone(),
                         ty: "String".to_string(),
                         is_public: true,
+                        builder_default: false,
                     })
                     .collect(),
             })
@@ -132,6 +133,7 @@ impl GeneratedCode {
                 name: "url_parameters".to_string(),
                 ty: url_params_name,
                 is_public: true,
+                builder_default: false,
             });
         }
         if ir.is_paginated {
@@ -139,19 +141,25 @@ impl GeneratedCode {
                 name: "pagination".to_string(),
                 ty: "PaginationRequest".to_string(),
                 is_public: true,
+                builder_default: true,
             });
         }
-        operation_fields.push(GeneratedField {
-            name: "body".to_string(),
-            ty: ir.struct_name.clone(),
-            is_public: true,
-        });
+        let has_body = ir.method != "GET" && ir.method != "DELETE";
+        if has_body {
+            operation_fields.push(GeneratedField {
+                name: "body".to_string(),
+                ty: ir.struct_name.clone(),
+                is_public: true,
+                builder_default: false,
+            });
+        }
 
         let url_format_string = url_template_to_format_string(&ir.url_template);
         let version = parse_version(&ir.version_str).unwrap_or(VersionKind::Preview);
 
         GeneratedCode {
             original_struct_name: ir.struct_name.clone(),
+            has_body,
             url_params_struct,
             operation_struct: GeneratedStruct {
                 name: operation_name.clone(),

@@ -18,12 +18,12 @@ fn strip_consumed_attrs(attrs: &[syn::Attribute]) -> Vec<syn::Attribute> {
         .collect()
 }
 
-fn path_from_type_string(s: &str) -> syn::Path {
+fn path_from_type_string(s: &str) -> syn::Type {
     if s == "PaginationRequest" {
-        parse_str::<syn::Path>("::mongodb_atlas_cli::atlas::paginated::PaginationRequest")
+        parse_str::<syn::Type>("::mongodb_atlas_cli::atlas::paginated::PaginationRequest")
             .expect("PaginationRequest path is valid")
     } else {
-        parse_str::<syn::Path>(s).unwrap_or_else(|_| parse_str("()").unwrap())
+        parse_str::<syn::Type>(s).unwrap_or_else(|_| parse_str("()").unwrap())
     }
 }
 
@@ -39,8 +39,23 @@ fn version_to_tokens(v: &VersionKind) -> TokenStream {
     }
 }
 
-/// Emit the operation struct (no Default so body type is not required to implement it).
-fn emit_operation_struct(s: &GeneratedStruct) -> TokenStream {
+/// Extract `#[derive(...)]` attributes from the original struct to forward onto generated types.
+/// Falls back to `#[derive(Debug)]` when the original has no derives.
+fn extract_derive_attrs(attrs: &[syn::Attribute]) -> TokenStream {
+    let derives: Vec<_> = attrs
+        .iter()
+        .filter(|a| a.path().is_ident("derive"))
+        .collect();
+    if derives.is_empty() {
+        quote! { #[derive(Debug)] }
+    } else {
+        quote! { #(#derives)* }
+    }
+}
+
+/// Emit the operation struct, forwarding the derive attributes from the original struct.
+/// `TypedBuilder` is always added so callers get a builder for free.
+fn emit_operation_struct(s: &GeneratedStruct, derive_attrs: TokenStream) -> TokenStream {
     let name = syn::Ident::new(&s.name, proc_macro2::Span::call_site());
     let fields = s.fields.iter().map(|f| {
         let fname = syn::Ident::new(&f.name, proc_macro2::Span::call_site());
@@ -50,10 +65,16 @@ fn emit_operation_struct(s: &GeneratedStruct) -> TokenStream {
         } else {
             quote! {}
         };
-        quote! { #vis #fname: #fty }
+        let builder_attr = if f.builder_default {
+            quote! { #[builder(default)] }
+        } else {
+            quote! {}
+        };
+        quote! { #builder_attr #vis #fname: #fty }
     });
     quote! {
-        #[derive(Debug)]
+        #derive_attrs
+        #[derive(::typed_builder::TypedBuilder)]
         pub struct #name {
             #(#fields),*
         }
@@ -67,7 +88,8 @@ fn emit_url_params_struct(s: &GeneratedStruct) -> TokenStream {
         quote! { pub #fname: String }
     });
     quote! {
-        #[derive(Debug, Default)]
+        #[derive(Debug, Default, Clone, PartialEq, Eq)]
+        #[derive(::typed_builder::TypedBuilder)]
         pub struct #name {
             #(#fields),*
         }
@@ -153,21 +175,30 @@ pub fn render_to_formatted_string(code: &GeneratedCode, original: &syn::ItemStru
     prettyplease::unparse(&file)
 }
 
-/// Produce the full token stream: original struct (with attrs stripped), url params struct (if any), operation struct, impl.
+/// Produce the full token stream: original struct (with attrs stripped, if body is used), url params struct (if any), operation struct, impl.
 pub fn render(code: &GeneratedCode, original: &syn::ItemStruct) -> TokenStream {
-    let mut item = original.clone();
-    item.attrs = strip_consumed_attrs(&original.attrs);
-
-    let original_struct = item.to_token_stream();
-
+    let derive_attrs = extract_derive_attrs(&original.attrs);
     let url_params_blocks: Vec<_> = code
         .url_params_struct
         .as_ref()
         .map(emit_url_params_struct)
         .into_iter()
         .collect();
-    let operation_struct = emit_operation_struct(&code.operation_struct);
+    let operation_struct = emit_operation_struct(&code.operation_struct, derive_attrs);
     let operation_impl = emit_operation_impl(&code.operation_impl);
+
+    let mut item = original.clone();
+    item.attrs = strip_consumed_attrs(&original.attrs);
+
+    if !code.has_body {
+        // For GET/DELETE there is no body field referencing this struct, so inject
+        // #[allow(dead_code)] into the generated output so the user can still
+        // derive traits without seeing a dead_code warning in their own source.
+        let allow_dead_code: syn::Attribute = syn::parse_quote!(#[allow(dead_code)]);
+        item.attrs.insert(0, allow_dead_code);
+    }
+
+    let original_struct = item.to_token_stream();
 
     quote! {
         #original_struct
@@ -206,53 +237,73 @@ mod tests {
     }
 
     fn minimal_struct(name: &str) -> syn::ItemStruct {
-        syn::parse_str(&format!("#[derive(Debug)] struct {} {{}}", name)).expect("valid struct")
+        syn::parse_str(&format!(
+            "#[derive(Debug, Clone, PartialEq, Eq)] struct {} {{}}",
+            name
+        ))
+        .expect("valid struct")
     }
 
     #[test]
-    fn snapshot_paginated_get_with_url_params() {
+    fn snapshot_get_group_cluster() {
         let ir = parsed(
-            "ListGroupClusterRequest",
+            "GetGroupClusterRequest",
+            "GET",
+            "2024-08-05",
+            "/api/atlas/v2/groups/{group_id}/clusters/{cluster_name}",
+            false,
+            "ClusterDescription20240805",
+        );
+        let code = GeneratedCode::from_parsed(ir);
+        let original = minimal_struct("GetGroupClusterRequest");
+        let formatted = render_to_formatted_string(&code, &original);
+        insta::assert_snapshot!(formatted);
+    }
+
+    #[test]
+    fn snapshot_list_group_clusters() {
+        let ir = parsed(
+            "ListGroupClustersRequest",
             "GET",
             "2024-08-05",
             "/api/atlas/v2/groups/{group_id}/clusters",
             true,
-            "ClusterSummary",
+            "ClusterDescription20240805",
         );
         let code = GeneratedCode::from_parsed(ir);
-        let original = minimal_struct("ListGroupClusterRequest");
+        let original = minimal_struct("ListGroupClustersRequest");
         let formatted = render_to_formatted_string(&code, &original);
         insta::assert_snapshot!(formatted);
     }
 
     #[test]
-    fn snapshot_get_no_url_params_non_paginated() {
+    fn snapshot_delete_group_cluster() {
         let ir = parsed(
-            "GetClusterRequest",
-            "GET",
-            "2024-08-05",
-            "/api/atlas/v2/clusters/foo",
+            "DeleteGroupClusterRequest",
+            "DELETE",
+            "2023-02-01",
+            "/api/atlas/v2/groups/{group_id}/clusters/{cluster_name}",
             false,
-            "Cluster",
+            "()",
         );
         let code = GeneratedCode::from_parsed(ir);
-        let original = minimal_struct("GetClusterRequest");
+        let original = minimal_struct("DeleteGroupClusterRequest");
         let formatted = render_to_formatted_string(&code, &original);
         insta::assert_snapshot!(formatted);
     }
 
     #[test]
-    fn snapshot_post_with_url_params() {
+    fn snapshot_update_group_cluster() {
         let ir = parsed(
-            "CreateClusterRequest",
-            "POST",
-            "2024-08-05",
-            "/api/atlas/v2/groups/{group_id}/clusters",
+            "UpdateGroupClusterRequest",
+            "PATCH",
+            "2024-10-23",
+            "/api/atlas/v2/groups/{group_id}/clusters/{cluster_name}",
             false,
-            "Cluster",
+            "ClusterDescription20240805",
         );
         let code = GeneratedCode::from_parsed(ir);
-        let original = minimal_struct("CreateClusterRequest");
+        let original = minimal_struct("UpdateGroupClusterRequest");
         let formatted = render_to_formatted_string(&code, &original);
         insta::assert_snapshot!(formatted);
     }
