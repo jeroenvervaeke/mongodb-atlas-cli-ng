@@ -34,7 +34,7 @@ derive = ["dep:mongodb-atlas-cli-macros", "dep:typed-builder"]
 mongodb-atlas-cli-macros = { path = "macros", version = "0.2.0", optional = true }
 base64 = "0.22.1"
 bytes = "1.11.1"
-config = "0.15.19"
+config = "0.15.21"
 digest_auth = "0.3"
 dirs = "6.0.0"
 hex = "0.4.3"
@@ -63,4 +63,4 @@ pretty_assertions = "1.4.1"
 tempfile = "3.27.0"
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0.102"
-clap = { version = "4.5.60", features = ["derive"] }
+clap = { version = "4.6.0", features = ["derive"] }
