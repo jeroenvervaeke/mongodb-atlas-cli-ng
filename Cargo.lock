@@ -1229,7 +1229,7 @@ dependencies = [
 
 [[package]]
 name = "mongodb-atlas-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -1265,7 +1265,7 @@ dependencies = [
 
 [[package]]
 name = "mongodb-atlas-cli-macros"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "insta",
  "prettyplease",

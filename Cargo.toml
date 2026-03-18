@@ -3,7 +3,7 @@ members = ["macros"]
 
 [package]
 name = "mongodb-atlas-cli"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 authors = ["Jeroen Vervaeke <atlas-cli-ng.s29p5@simplelogin.com>"]
 description = "Opinionated alternative CLI and library to interact with the MongoDB Atlas Admin API"
@@ -31,7 +31,7 @@ required-features = ["derive"]
 derive = ["dep:mongodb-atlas-cli-macros", "dep:typed-builder"]
 
 [dependencies]
-mongodb-atlas-cli-macros = { path = "macros", version = "0.2.0", optional = true }
+mongodb-atlas-cli-macros = { path = "macros", version = "0.2.1", optional = true }
 base64 = "0.22.1"
 bytes = "1.11.1"
 config = "0.15.21"
