@@ -34,7 +34,7 @@ derive = ["dep:mongodb-atlas-cli-macros", "dep:typed-builder"]
 mongodb-atlas-cli-macros = { path = "macros", version = "0.2.1", optional = true }
 base64 = "0.22.1"
 bytes = "1.11.1"
-config = "0.15.21"
+config = "0.15.22"
 digest_auth = "0.3"
 dirs = "6.0.0"
 hex = "0.4.3"
@@ -49,7 +49,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1"
 thiserror = "2.0.18"
 tokio = { version = "1", features = ["sync"] }
-toml = { version = "1.0.6", features = ["preserve_order"] }
+toml = { version = "1.1.2", features = ["preserve_order"] }
 tower = "0.5.3"
 tower-http = { version = "0.6.8", features = ["full"] }
 tracing = "0.1"
