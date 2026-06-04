@@ -75,25 +75,26 @@ ad-hoc signature changes on every rebuild, so macOS treats each rebuild as a new
 program and keeps asking for permission — even after you click *Always Allow*.
 (See [keyring-rs#272](https://github.com/open-source-cooperative/keyring-rs/issues/272).)
 
-To fix it, sign local builds with a stable identity. Run this **once**:
-
-```bash
-./scripts/setup-codesign-identity.sh
-```
-
-It creates a self-signed, code-signing-only dev certificate in your login
-keychain (asking for your login password a single time). After that, the cargo
-runner configured in [`.cargo/config.toml`](.cargo/config.toml) automatically
-signs every binary with the same identity and bundle id before running it:
+The fix is to sign local builds with a stable identity, and it is wired to
+happen automatically. The cargo runner in
+[`.cargo/config.toml`](.cargo/config.toml) signs every binary before running it,
+and **creates the signing identity on first use** if it doesn't exist yet — so
+you just build as usual:
 
 ```bash
 cargo run --example list_clusters --features derive
 ```
 
-The first run still prompts once — click **Always Allow**. Because every rebuild
-now carries the same signature, macOS won't ask again. This is a local-dev
-certificate only; it requires no Apple Developer account and is a no-op on other
-platforms and in CI (builds simply run unsigned, as before).
+The first build creates a self-signed, code-signing-only dev certificate in your
+login keychain (asking for your login password once), then signs and runs. Click
+**Always Allow** on the Keychain prompt; because every rebuild now carries the
+same signature, macOS won't ask again.
+
+This is a local-dev certificate only — no Apple Developer account needed. It is a
+no-op on other platforms and on CI (non-interactive builds simply run unsigned,
+as before), so it never blocks a build. If you'd rather provision the identity
+ahead of time, run `./scripts/setup-codesign-identity.sh` directly; set
+`ATLAS_CLI_SIGN_AUTOSETUP=0` to opt out of the automatic setup.
 
 ## License
 

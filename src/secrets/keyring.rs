@@ -15,10 +15,10 @@
 //! the service/property names below are unchanged.
 //!
 //! The fix lives in the build tooling, not here: changing the names below would
-//! only orphan existing secrets. `scripts/setup-codesign-identity.sh` creates a
-//! stable self-signed dev identity once, and the macOS cargo runner wired up in
-//! `.cargo/config.toml` (`scripts/codesign-and-run.sh`) signs every build with
-//! it, so a single "Always Allow" survives rebuilds.
+//! only orphan existing secrets. The macOS cargo runner wired up in
+//! `.cargo/config.toml` (`scripts/codesign-and-run.sh`) signs every build with a
+//! stable self-signed dev identity — creating that identity on first use — so a
+//! single "Always Allow" survives rebuilds.
 //!
 //! See <https://github.com/open-source-cooperative/keyring-rs/issues/272>.
 

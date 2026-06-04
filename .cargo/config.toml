@@ -10,8 +10,14 @@
 # requirement stable, so a single "Always Allow" survives rebuilds.
 #
 # See https://github.com/open-source-cooperative/keyring-rs/issues/272 and
-# scripts/codesign-and-run.sh. The wrapper is a safe no-op when no dev identity
-# is installed (e.g. on CI), so it never blocks a build.
+# scripts/codesign-and-run.sh. The wrapper creates the signing identity on first
+# use (interactive terminals only) and is a safe no-op when none is installed on
+# a non-interactive build (e.g. on CI), so it never blocks a build.
+#
+# Why a runner and not build.rs: a build script runs *before* Cargo compiles the
+# crate's binaries, so the artifact to sign does not exist yet, and Cargo has no
+# post-build hook. A target runner is the supported seam for acting on a freshly
+# built binary — it wraps `cargo run`, `cargo test`, and `cargo bench`.
 #
 # Both Apple architectures are listed because a target runner only applies to a
 # matching target triple. Invoke cargo from the repository root so the relative

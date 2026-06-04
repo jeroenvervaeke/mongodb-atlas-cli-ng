@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 #
-# One-time setup: create a stable, self-signed code-signing identity used to
-# sign local example/CLI builds, so macOS stops re-prompting for Keychain
-# access on every rebuild.
+# Create a stable, self-signed code-signing identity used to sign local
+# example/CLI builds, so macOS stops re-prompting for Keychain access on every
+# rebuild.
+#
+# You normally don't need to run this by hand: the cargo runner
+# (scripts/codesign-and-run.sh) calls it automatically the first time it needs
+# the identity. Run it directly only if you want to provision the identity ahead
+# of time. Either way the result is the same.
 #
 # Background and the runner that uses this identity live in
 # scripts/codesign-and-run.sh and
@@ -10,7 +15,8 @@
 #
 # Safe to re-run: it does nothing if the identity already exists. The only
 # expected prompt is a single request for your login password when the
-# certificate is marked trusted for code signing.
+# certificate is marked trusted for code signing. Set ATLAS_CLI_SIGN_QUIET=1 to
+# suppress the closing tutorial (the runner sets this when it calls us).
 
 set -euo pipefail
 
@@ -78,7 +84,10 @@ security add-trusted-cert -p codeSign -k "$KEYCHAIN" "$workdir/cert.pem" ||
   echo "warning: could not set trust automatically; see the note below." >&2
 
 if security find-identity -v -p codesigning 2>/dev/null | grep -qF "$IDENTITY"; then
-  cat <<EOF
+  if [[ -n "${ATLAS_CLI_SIGN_QUIET:-}" ]]; then
+    echo "Code-signing identity \"$IDENTITY\" is ready."
+  else
+    cat <<EOF
 
 Done — "$IDENTITY" is ready.
 
@@ -89,8 +98,9 @@ Building through cargo now signs automatically, e.g.:
 The first run still prompts once — click "Always Allow". Because every rebuild
 now carries the same signature, macOS will not ask again.
 EOF
+  fi
 else
-  cat <<EOF
+  cat >&2 <<EOF
 
 The certificate was created but is not yet a valid code-signing identity,
 which usually means the trust step did not complete. Finish it in Keychain
