@@ -1,0 +1,24 @@
+# macOS-only: run every freshly built binary through a wrapper that codesigns
+# it with a stable, self-signed identity before executing.
+#
+# Why: macOS keys each Keychain item's access-control list off the *code
+# signature* of the program that touched it. Plain `cargo` builds are ad-hoc
+# signed, and an ad-hoc signature's designated requirement is the binary's
+# content hash — which changes on every rebuild. The Keychain therefore treats
+# each rebuild as a new, untrusted program and re-prompts for permission.
+# Signing with the same certificate + bundle id on every build keeps that
+# requirement stable, so a single "Always Allow" survives rebuilds.
+#
+# See https://github.com/open-source-cooperative/keyring-rs/issues/272 and
+# scripts/codesign-and-run.sh. The wrapper is a safe no-op when no dev identity
+# is installed (e.g. on CI), so it never blocks a build.
+#
+# Both Apple architectures are listed because a target runner only applies to a
+# matching target triple. Invoke cargo from the repository root so the relative
+# script path resolves.
+
+[target.aarch64-apple-darwin]
+runner = ["bash", "scripts/codesign-and-run.sh"]
+
+[target.x86_64-apple-darwin]
+runner = ["bash", "scripts/codesign-and-run.sh"]

@@ -1,3 +1,27 @@
+//! OS keychain-backed secret store.
+//!
+//! Secrets are keyed by a stable service name (`atlascli_<profile>`, see
+//! [`build_service_name`]) plus a property name, so the same credential items
+//! are reused across runs.
+//!
+//! ## macOS: permission re-prompts after every rebuild
+//!
+//! On macOS the Keychain additionally guards each item with an access-control
+//! list keyed off the *code signature* of the program that accesses it. Plain
+//! `cargo` builds are ad-hoc signed, and an ad-hoc signature's designated
+//! requirement is the binary's content hash — which changes on every rebuild.
+//! macOS therefore treats each rebuild as a new, untrusted program and
+//! re-prompts ("… wants to use your confidential information …"), even though
+//! the service/property names below are unchanged.
+//!
+//! The fix lives in the build tooling, not here: changing the names below would
+//! only orphan existing secrets. `scripts/setup-codesign-identity.sh` creates a
+//! stable self-signed dev identity once, and the macOS cargo runner wired up in
+//! `.cargo/config.toml` (`scripts/codesign-and-run.sh`) signs every build with
+//! it, so a single "Always Allow" survives rebuilds.
+//!
+//! See <https://github.com/open-source-cooperative/keyring-rs/issues/272>.
+
 use keyring::Entry;
 
 use super::{ApiKeys, Secret, SecretStore, SecretStoreError, ServiceAccount, UserAccount};
@@ -28,6 +52,9 @@ impl KeyringSecretStore {
     }
 }
 
+/// Keychain service name for a profile. Keep this format stable: changing it
+/// orphans every previously stored secret. See the module docs for the macOS
+/// re-prompt behavior, which depends on code signing rather than this name.
 fn build_service_name(profile_name: &str) -> String {
     format!("atlascli_{}", profile_name)
 }

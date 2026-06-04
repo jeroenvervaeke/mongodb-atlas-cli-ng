@@ -67,6 +67,34 @@ cargo test
 cargo run --example print_default_profile
 ```
 
+#### macOS: stop the Keychain re-prompting on every rebuild
+
+On macOS the Keychain ties each stored credential to the **code signature** of
+the program that accesses it. Plain `cargo` builds are ad-hoc signed, and an
+ad-hoc signature changes on every rebuild, so macOS treats each rebuild as a new
+program and keeps asking for permission — even after you click *Always Allow*.
+(See [keyring-rs#272](https://github.com/open-source-cooperative/keyring-rs/issues/272).)
+
+To fix it, sign local builds with a stable identity. Run this **once**:
+
+```bash
+./scripts/setup-codesign-identity.sh
+```
+
+It creates a self-signed, code-signing-only dev certificate in your login
+keychain (asking for your login password a single time). After that, the cargo
+runner configured in [`.cargo/config.toml`](.cargo/config.toml) automatically
+signs every binary with the same identity and bundle id before running it:
+
+```bash
+cargo run --example list_clusters --features derive
+```
+
+The first run still prompts once — click **Always Allow**. Because every rebuild
+now carries the same signature, macOS won't ask again. This is a local-dev
+certificate only; it requires no Apple Developer account and is a no-op on other
+platforms and in CI (builds simply run unsigned, as before).
+
 ## License
 
 See [LICENSE](LICENSE) for details.
