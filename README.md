@@ -119,13 +119,27 @@ Then add to the repository:
 | `MACOS_CODESIGN_P12_PASSWORD` | secret | the `.p12` export password |
 | `MACOS_CODESIGN_IDENTITY` | variable | the cert's name, e.g. `Developer ID Application: Your Name (TEAMID)` |
 
-The `test-matrix` job is already wired up: when the secret is present it runs
-[`scripts/ci-import-signing-cert.sh`](scripts/ci-import-signing-cert.sh), which
-imports the cert into a dedicated keychain and authorizes `codesign`
-non-interactively (`security set-key-partition-list` — the headless equivalent
-of clicking *Always Allow*). The cargo runner then signs automatically. When the
-secret is absent — including pull requests from forks, which can't read secrets —
-the step is skipped and the suite runs unsigned, so nothing breaks.
+Then add a job-level `env:` and a guarded step to your macOS CI job (e.g.
+`test-matrix` in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
+
+```yaml
+    env:
+      ATLAS_CLI_SIGN_CERT_P12_BASE64: ${{ secrets.MACOS_CODESIGN_P12_BASE64 }}
+      ATLAS_CLI_SIGN_CERT_P12_PASSWORD: ${{ secrets.MACOS_CODESIGN_P12_PASSWORD }}
+      ATLAS_CLI_SIGN_IDENTITY: ${{ vars.MACOS_CODESIGN_IDENTITY }}
+    # ...
+    steps:
+    - name: Import macOS signing certificate
+      if: runner.os == 'macOS' && env.ATLAS_CLI_SIGN_CERT_P12_BASE64 != ''
+      run: bash scripts/ci-import-signing-cert.sh
+```
+
+[`scripts/ci-import-signing-cert.sh`](scripts/ci-import-signing-cert.sh) imports
+the cert into a dedicated keychain and authorizes `codesign` non-interactively
+(`security set-key-partition-list` — the headless equivalent of clicking *Always
+Allow*). The cargo runner then signs automatically. When the secret is absent —
+including pull requests from forks, which can't read secrets — the step is
+skipped and the suite runs unsigned, so nothing breaks.
 
 ## License
 
