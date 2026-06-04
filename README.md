@@ -96,6 +96,37 @@ as before), so it never blocks a build. If you'd rather provision the identity
 ahead of time, run `./scripts/setup-codesign-identity.sh` directly; set
 `ATLAS_CLI_SIGN_AUTOSETUP=0` to opt out of the automatic setup.
 
+#### Code signing on CI (GitHub Actions)
+
+The interactive setup above can't run on a headless runner — it needs your login
+password to trust a self-signed cert. Most CI doesn't need signing at all (the
+runner's keychain is ephemeral and there's no human to re-prompt, so plain
+`cargo build` + `cargo test --lib` run fine unsigned). You only need it if a CI
+step actually exercises the real Keychain.
+
+When you do, sign with a **real code-signing certificate** shipped as an
+encrypted secret. Export it to a `.p12` and base64-encode it once:
+
+```bash
+base64 -i certificate.p12 | pbcopy   # any code-signing cert: Developer ID, internal CA, or self-signed
+```
+
+Then add to the repository:
+
+| Name | Kind | Value |
+| --- | --- | --- |
+| `MACOS_CODESIGN_P12_BASE64` | secret | the base64 from above |
+| `MACOS_CODESIGN_P12_PASSWORD` | secret | the `.p12` export password |
+| `MACOS_CODESIGN_IDENTITY` | variable | the cert's name, e.g. `Developer ID Application: Your Name (TEAMID)` |
+
+The `test-matrix` job is already wired up: when the secret is present it runs
+[`scripts/ci-import-signing-cert.sh`](scripts/ci-import-signing-cert.sh), which
+imports the cert into a dedicated keychain and authorizes `codesign`
+non-interactively (`security set-key-partition-list` — the headless equivalent
+of clicking *Always Allow*). The cargo runner then signs automatically. When the
+secret is absent — including pull requests from forks, which can't read secrets —
+the step is skipped and the suite runs unsigned, so nothing breaks.
+
 ## License
 
 See [LICENSE](LICENSE) for details.
