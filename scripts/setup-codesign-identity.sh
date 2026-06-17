@@ -72,22 +72,15 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
   -keyout "$workdir/key.pem" -out "$workdir/cert.pem" \
   -config "$workdir/req.cnf" >/dev/null 2>&1
 
-# OpenSSL 3 defaults to a PKCS#12 MAC/cipher that macOS's `security import`
-# rejects ("MAC verification failed during PKCS12 import (wrong password?)").
-# -legacy restores the algorithms Apple accepts; LibreSSL (/usr/bin/openssl) and
-# OpenSSL 1.x neither need nor recognize the flag.
-p12_legacy=
-if openssl version 2>/dev/null | grep -q '^OpenSSL 3'; then
-  p12_legacy=-legacy
-fi
-# shellcheck disable=SC2086 # $p12_legacy is a single optional flag (or empty)
-openssl pkcs12 -export $p12_legacy -inkey "$workdir/key.pem" -in "$workdir/cert.pem" \
-  -name "$IDENTITY" -out "$workdir/identity.p12" -passout pass: >/dev/null 2>&1
-
-# Import the key + cert and grant codesign access to the private key up front,
-# so later signing does not pop a Keychain prompt of its own.
-security import "$workdir/identity.p12" -k "$KEYCHAIN" -P "" \
-  -T /usr/bin/codesign -T /usr/bin/security >/dev/null
+# Import the private key and certificate as separate PEM files instead of
+# bundling them into a PKCS#12. macOS forms an identity from any certificate
+# whose private key is already in the keychain, and this avoids the whole class
+# of "MAC verification failed during PKCS12 import" errors — both OpenSSL 3's
+# newer PKCS#12 MAC/cipher defaults and the empty-password MAC encoding that
+# Apple's importer rejects. -T grants codesign/security access to the key up
+# front so signing doesn't pop its own Keychain prompt later.
+security import "$workdir/key.pem"  -k "$KEYCHAIN" -T /usr/bin/codesign -T /usr/bin/security
+security import "$workdir/cert.pem" -k "$KEYCHAIN"
 
 # Trust the cert for code signing so `find-identity -v` and `codesign` accept
 # it. This adjusts user trust settings and asks for your login password once —
