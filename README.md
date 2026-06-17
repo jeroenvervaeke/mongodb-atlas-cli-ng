@@ -113,6 +113,11 @@ once:
 base64 -i certificate.p12 | pbcopy   # any code-signing cert: Developer ID, internal CA, or self-signed
 ```
 
+> If you generate the `.p12` yourself with OpenSSL 3, add `-legacy` to the
+> `openssl pkcs12 -export` command (or use macOS's `/usr/bin/openssl`, which is
+> LibreSSL) — otherwise `security import` rejects it on the runner with "MAC
+> verification failed during PKCS12 import".
+
 Then add to the repository:
 
 | Name | Kind | Value |
