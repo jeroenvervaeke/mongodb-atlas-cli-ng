@@ -15,8 +15,11 @@
 #
 #     base64 -i certificate.p12 | pbcopy        # paste into the GH secret
 #
-# (Any code-signing .p12 works: a Developer ID Application cert, an internal-CA
-# cert, or a self-signed one exported from scripts/setup-codesign-identity.sh.)
+# Any code-signing .p12 works. A cert that chains to a trusted root (Developer ID
+# Application, an internal CA) is signed-ready immediately. A self-signed cert is
+# also fine: this script detects that it isn't trusted yet and trusts it for code
+# signing automatically, which needs passwordless sudo (GitHub-hosted runners
+# have it).
 #
 # Required environment (wire these from GitHub Actions secrets/vars):
 #   ATLAS_CLI_SIGN_CERT_P12_BASE64    base64 of the .p12
@@ -55,8 +58,8 @@ KEYCHAIN="${ATLAS_CLI_SIGN_KEYCHAIN:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/atlas-codes
 KC_PASS="${ATLAS_CLI_SIGN_KEYCHAIN_PASSWORD:-$(openssl rand -base64 24)}"
 
 workdir="$(mktemp -d)"
-# The decoded .p12 is private key material; shred it as soon as we're done.
-cleanup() { rm -f "$workdir/cert.p12"; rmdir "$workdir" 2>/dev/null || true; }
+# The decoded .p12 holds private key material; drop the whole workdir on exit.
+cleanup() { rm -rf "$workdir"; }
 trap cleanup EXIT
 
 # Decode via openssl (portable): macOS's BSD `base64` spells decode `-D`, not
@@ -83,11 +86,30 @@ security import "$workdir/cert.p12" -P "$P12_PASS" -k "$KEYCHAIN" \
 security set-key-partition-list -S apple-tool:,apple:,codesign: \
   -s -k "$KC_PASS" "$KEYCHAIN" >/dev/null
 
+# A certificate that chains to a trusted root (Developer ID, an org CA) is
+# already valid for signing. A self-signed certificate is not trusted by
+# default, so `find-identity -v` won't list it until we trust it for code
+# signing — do that automatically when needed. This adjusts the system trust
+# store, so it needs passwordless sudo (GitHub-hosted runners have it; on a
+# self-hosted runner, grant sudo or pre-trust the cert out of band).
 if ! security find-identity -v -p codesigning "$KEYCHAIN" | grep -qF "$IDENTITY"; then
-  echo "error: imported the certificate but found no valid code-signing identity" >&2
-  echo "       matching \"$IDENTITY\". Set ATLAS_CLI_SIGN_IDENTITY to the cert's" >&2
-  echo "       name, and make sure the cert chains to a trusted root (a self-signed" >&2
-  echo "       cert must also be trusted for code signing). Identities present:" >&2
+  echo "note: \"$IDENTITY\" is not a trusted code-signing identity yet — trusting" >&2
+  echo "      it for code signing (expected for a self-signed certificate)." >&2
+  if ! sudo -n true 2>/dev/null; then
+    echo "error: trusting the certificate needs passwordless sudo, which isn't" >&2
+    echo "       available here. Use a cert that chains to a trusted root, or" >&2
+    echo "       pre-trust this one on the runner." >&2
+    exit 1
+  fi
+  security find-certificate -c "$IDENTITY" -p "$KEYCHAIN" >"$workdir/cert.pem"
+  sudo security add-trusted-cert -d -r trustRoot -p codeSign \
+    -k /Library/Keychains/System.keychain "$workdir/cert.pem"
+fi
+
+if ! security find-identity -v -p codesigning "$KEYCHAIN" | grep -qF "$IDENTITY"; then
+  echo "error: imported the certificate but still found no valid code-signing" >&2
+  echo "       identity matching \"$IDENTITY\". Set ATLAS_CLI_SIGN_IDENTITY to the" >&2
+  echo "       certificate's exact name. Identities present:" >&2
   security find-identity -v -p codesigning "$KEYCHAIN" >&2 || true
   exit 1
 fi

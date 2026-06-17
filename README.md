@@ -104,8 +104,10 @@ runner's keychain is ephemeral and there's no human to re-prompt, so plain
 `cargo build` + `cargo test --lib` run fine unsigned). You only need it if a CI
 step actually exercises the real Keychain.
 
-When you do, sign with a **real code-signing certificate** shipped as an
-encrypted secret. Export it to a `.p12` and base64-encode it once:
+When you do, sign with a **code-signing certificate** shipped as an encrypted
+secret — a real Developer ID/CA cert, or a free self-signed one (the script
+trusts a self-signed cert for you). Export it to a `.p12` and base64-encode it
+once:
 
 ```bash
 base64 -i certificate.p12 | pbcopy   # any code-signing cert: Developer ID, internal CA, or self-signed
@@ -137,7 +139,10 @@ Then add a job-level `env:` and a guarded step to your macOS CI job (e.g.
 [`scripts/ci-import-signing-cert.sh`](scripts/ci-import-signing-cert.sh) imports
 the cert into a dedicated keychain and authorizes `codesign` non-interactively
 (`security set-key-partition-list` — the headless equivalent of clicking *Always
-Allow*). The cargo runner then signs automatically. When the secret is absent —
+Allow*). A self-signed cert is also trusted for code signing automatically (via
+passwordless sudo, which GitHub-hosted runners provide); a cert that chains to a
+trusted root needs no trust step. The cargo runner then signs automatically. When
+the secret is absent —
 including pull requests from forks, which can't read secrets — the step is
 skipped and the suite runs unsigned, so nothing breaks.
 
