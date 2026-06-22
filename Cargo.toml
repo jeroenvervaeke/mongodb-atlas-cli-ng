@@ -51,7 +51,7 @@ thiserror = "2.0.18"
 tokio = { version = "1", features = ["sync"] }
 toml = { version = "1.1.2", features = ["preserve_order"] }
 tower = "0.5.3"
-tower-http = { version = "0.6.11", features = ["full"] }
+tower-http = { version = "0.7.0", features = ["full"] }
 tracing = "0.1"
 url = "2.5.8"
 typed-builder = { version = "0.23.2", optional = true }
