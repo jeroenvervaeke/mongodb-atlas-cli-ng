@@ -9,13 +9,13 @@ repository = "https://github.com/jeroenvervaeke/mongodb-atlas-cli-ng"
 homepage = "https://github.com/jeroenvervaeke/mongodb-atlas-cli-ng"
 
 [dependencies]
-syn = { version = "2", features = ["full", "extra-traits"] }
+syn = { version = "3", features = ["full", "extra-traits"] }
 quote = "1"
 proc-macro2 = "1"
 
 [dev-dependencies]
 insta = "1"
-prettyplease = "0.2"
+prettyplease = "0.3"
 
 [lib]
 proc-macro = true
