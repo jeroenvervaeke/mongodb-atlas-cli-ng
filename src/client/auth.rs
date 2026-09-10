@@ -98,9 +98,8 @@ pub enum AuthMethod {
         cached_token: Option<CachedToken>,
         refresh_token: String,
         token_endpoint: String,
-        /// The Atlas CLI's own OAuth2 client_id (public, not a secret). Not
-        /// to be confused with a service account's `client_id`.
-        cli_client_id: String,
+        /// The Atlas CLI's OAuth2 client_id (public, not a secret).
+        client_id: String,
         /// Used to persist refreshed tokens so they survive across CLI invocations.
         secret_store: Box<dyn SecretStore>,
         /// The CLI profile name, used as the key for the secret store.
@@ -200,11 +199,11 @@ impl AuthMethod {
             AuthMethod::UserAccount {
                 refresh_token,
                 token_endpoint,
-                cli_client_id,
+                client_id,
                 ..
             } => {
                 let form_body = url::form_urlencoded::Serializer::new(String::new())
-                    .append_pair("client_id", cli_client_id)
+                    .append_pair("client_id", client_id)
                     .append_pair("refresh_token", refresh_token)
                     .append_pair("scope", "openid profile offline_access")
                     .append_pair("grant_type", "refresh_token")
@@ -351,15 +350,13 @@ impl AuthenticationLayer {
     /// * `refresh_token` - OAuth2 refresh token for acquiring new access tokens.
     /// * `token_endpoint` - URL of the OAuth2 token endpoint (see
     ///   [`Service::token_endpoint()`](crate::config::Service::token_endpoint)).
-    /// * `cli_client_id` - The Atlas CLI's own OAuth2 client_id (see
-    ///   [`AtlasCLIConfig::cli_client_id`]).
     /// * `secret_store` - Persists refreshed tokens across CLI invocations.
     /// * `profile_name` - CLI profile name (key for the secret store).
     pub fn user_account(
         access_token: Option<String>,
         refresh_token: String,
         token_endpoint: String,
-        cli_client_id: String,
+        client_id: String,
         secret_store: Box<dyn SecretStore>,
         profile_name: ProfileName,
     ) -> Self {
@@ -371,7 +368,7 @@ impl AuthenticationLayer {
                     cached_token,
                     refresh_token,
                     token_endpoint,
-                    cli_client_id,
+                    client_id,
                     secret_store,
                     profile_name,
                 },
@@ -1135,7 +1132,7 @@ mod tests {
                     cached_token: Some(CachedToken::new("cached-access-token".into())),
                     refresh_token: "test-refresh-token".into(),
                     token_endpoint: "https://example.com/token".into(),
-                    cli_client_id: "test-client-id".into(),
+                    client_id: "test-client-id".into(),
                     secret_store: Box::new(MockSecretStore::new()),
                     profile_name: "default".parse().unwrap(),
                 },
@@ -1197,7 +1194,7 @@ mod tests {
                     cached_token: Some(expired_token),
                     refresh_token: "old-refresh-token".into(),
                     token_endpoint: "https://example.com/token".into(),
-                    cli_client_id: "test-client-id".into(),
+                    client_id: "test-client-id".into(),
                     secret_store: Box::new(mock_store),
                     profile_name: "default".parse().unwrap(),
                 },
@@ -1246,7 +1243,7 @@ mod tests {
                     cached_token: None,
                     refresh_token: "my-refresh-token".into(),
                     token_endpoint: "https://example.com/token".into(),
-                    cli_client_id: "test-client-id".into(),
+                    client_id: "test-client-id".into(),
                     secret_store: Box::new(mock_store),
                     profile_name: "default".parse().unwrap(),
                 },
@@ -1473,7 +1470,7 @@ mod tests {
                     cached_token: None,
                     refresh_token: "my-refresh-token".into(),
                     token_endpoint: "https://example.com/token".into(),
-                    cli_client_id: "test-client-id".into(),
+                    client_id: "test-client-id".into(),
                     secret_store: Box::new(mock_store),
                     profile_name: "default".parse().unwrap(),
                 },
