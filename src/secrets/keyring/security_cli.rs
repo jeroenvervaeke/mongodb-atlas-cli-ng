@@ -13,8 +13,6 @@
 
 #[cfg(target_os = "macos")]
 use std::io::Write;
-#[cfg(target_os = "macos")]
-use std::path::Path;
 use std::process::Output;
 #[cfg(target_os = "macos")]
 use std::process::{Command, Stdio};
@@ -28,8 +26,9 @@ const NOT_FOUND_MARKER: &str = "could not be found";
 const MAX_COMMAND_LEN: usize = 4096;
 
 #[cfg(target_os = "macos")]
-pub fn is_available() -> bool {
-    Path::new(SECURITY_BIN).is_file()
+pub fn is_available(service: &str, account: &str) -> bool {
+    // A missing item still proves `security` runs and can reach the keychain.
+    get(service, account).is_ok()
 }
 
 #[cfg(target_os = "macos")]

@@ -17,8 +17,11 @@ use keyring::Entry;
 
 use crate::secrets::SecretStoreError;
 
-pub fn is_available() -> bool {
-    entry("default", "dummy").is_ok()
+pub fn is_available(service: &str, account: &str) -> bool {
+    let Ok(entry) = entry(service, account) else {
+        return false;
+    };
+    is_reachable(entry.get_secret())
 }
 
 pub fn get(service: &str, account: &str) -> Result<Option<String>, SecretStoreError> {
@@ -63,6 +66,15 @@ fn windows_target_name(service: &str, account: &str) -> String {
     format!("{service}:{account}")
 }
 
+// A missing probe item still proves the backend answered; only "no backend"
+// class errors mean we must fall back to the file store.
+fn is_reachable(probe: Result<Vec<u8>, keyring::Error>) -> bool {
+    !matches!(
+        probe,
+        Err(keyring::Error::NoStorageAccess(_) | keyring::Error::PlatformFailure(_))
+    )
+}
+
 fn backend_error(e: keyring::Error) -> SecretStoreError {
     match e {
         // Duplicate items are a store-content problem the user can fix (e.g. in
@@ -89,6 +101,30 @@ mod tests {
             windows_target_name("atlascli_default", "access_token"),
             "atlascli_default:access_token"
         );
+    }
+
+    #[test]
+    fn test_is_reachable_when_probe_item_exists() {
+        assert!(is_reachable(Ok(b"value".to_vec())));
+    }
+
+    #[test]
+    fn test_is_reachable_when_probe_item_is_missing() {
+        assert!(is_reachable(Err(keyring::Error::NoEntry)));
+    }
+
+    #[test]
+    fn test_is_not_reachable_without_storage_access() {
+        assert!(!is_reachable(Err(keyring::Error::NoStorageAccess(
+            "locked".into()
+        ))));
+    }
+
+    #[test]
+    fn test_is_not_reachable_on_platform_failure() {
+        assert!(!is_reachable(Err(keyring::Error::PlatformFailure(
+            "no secret service".into()
+        ))));
     }
 
     #[test]

@@ -26,11 +26,16 @@ const KEY_SERVICE_ACCOUNT_CLIENT_SECRET: &str = "client_secret";
 const KEY_SERVICE_ACCOUNT_ACCESS_TOKEN: &str = "service_account_access_token";
 const KEY_SERVICE_ACCOUNT_TOKEN_EXPIRES_AT: &str = "service_account_token_expires_at";
 
+// Same probe the Go Atlas CLI's secure store uses to decide between the
+// keyring and the config file.
+const PROBE_PROFILE: &str = "default";
+const PROBE_PROPERTY: &str = "test";
+
 pub struct KeyringSecretStore {}
 
 impl KeyringSecretStore {
     pub fn new() -> Option<Self> {
-        if backend::is_available() {
+        if backend::is_available(&build_service_name(PROBE_PROFILE), PROBE_PROPERTY) {
             Some(Self {})
         } else {
             None
