@@ -7,7 +7,7 @@
 
 use std::fmt;
 
-use crate::secrets::SecretStoreError;
+use crate::secrets::{InvalidProfileName, SecretStoreError};
 
 /// Errors that can occur during the authentication process.
 ///
@@ -131,4 +131,8 @@ pub enum FromConfigError {
     /// An error from the secret store.
     #[error("secret store error: {0}")]
     SecretStoreError(#[from] SecretStoreError),
+
+    /// The profile name cannot be used as a secret store key.
+    #[error(transparent)]
+    InvalidProfileName(#[from] InvalidProfileName),
 }

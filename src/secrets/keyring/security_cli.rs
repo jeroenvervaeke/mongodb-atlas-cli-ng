@@ -17,7 +17,9 @@ use std::process::Output;
 #[cfg(target_os = "macos")]
 use std::process::{Command, Stdio};
 
-use crate::secrets::SecretStoreError;
+#[cfg(target_os = "macos")]
+use crate::secrets::keyring::KeychainService;
+use crate::secrets::{SecretStoreError, encoding::EncodedSecret};
 
 #[cfg(target_os = "macos")]
 const SECURITY_BIN: &str = "/usr/bin/security";
@@ -26,24 +28,37 @@ const NOT_FOUND_MARKER: &str = "could not be found";
 const MAX_COMMAND_LEN: usize = 4096;
 
 #[cfg(target_os = "macos")]
-pub fn is_available(service: &str, account: &str) -> bool {
+pub fn is_available(service: &KeychainService, account: &str) -> bool {
     // A missing item still proves `security` runs and can reach the keychain.
     get(service, account).is_ok()
 }
 
 #[cfg(target_os = "macos")]
-pub fn get(service: &str, account: &str) -> Result<Option<String>, SecretStoreError> {
+pub fn get(
+    service: &KeychainService,
+    account: &str,
+) -> Result<Option<EncodedSecret>, SecretStoreError> {
     let output = Command::new(SECURITY_BIN)
-        .args(["find-generic-password", "-s", service, "-wa", account])
+        .args([
+            "find-generic-password",
+            "-s",
+            service.as_str(),
+            "-wa",
+            account,
+        ])
         .output()
         .map_err(io_error)?;
     parse_find_output(&output)
 }
 
 #[cfg(target_os = "macos")]
-pub fn set(service: &str, account: &str, value: &str) -> Result<(), SecretStoreError> {
+pub fn set(
+    service: &KeychainService,
+    account: &str,
+    value: &EncodedSecret,
+) -> Result<(), SecretStoreError> {
     // Interactive mode keeps the secret out of argv (and thus out of `ps`).
-    let command = build_add_command(service, account, value)?;
+    let command = build_add_command(service.as_str(), account, value.as_str())?;
     let mut child = Command::new(SECURITY_BIN)
         .arg("-i")
         .stdin(Stdio::piped())
@@ -69,9 +84,15 @@ pub fn set(service: &str, account: &str, value: &str) -> Result<(), SecretStoreE
 }
 
 #[cfg(target_os = "macos")]
-pub fn delete(service: &str, account: &str) -> Result<(), SecretStoreError> {
+pub fn delete(service: &KeychainService, account: &str) -> Result<(), SecretStoreError> {
     let output = Command::new(SECURITY_BIN)
-        .args(["delete-generic-password", "-s", service, "-a", account])
+        .args([
+            "delete-generic-password",
+            "-s",
+            service.as_str(),
+            "-a",
+            account,
+        ])
         .output()
         .map_err(io_error)?;
     if output.status.success() || is_not_found(&output) {
@@ -81,7 +102,7 @@ pub fn delete(service: &str, account: &str) -> Result<(), SecretStoreError> {
     }
 }
 
-fn parse_find_output(output: &Output) -> Result<Option<String>, SecretStoreError> {
+fn parse_find_output(output: &Output) -> Result<Option<EncodedSecret>, SecretStoreError> {
     if is_not_found(output) {
         return Ok(None);
     }
@@ -95,7 +116,7 @@ fn parse_find_output(output: &Output) -> Result<Option<String>, SecretStoreError
             reason: format!("secret is not valid UTF-8: {e}"),
         }
     })?;
-    Ok(Some(value.trim().to_string()))
+    Ok(Some(EncodedSecret(value.trim().to_string())))
 }
 
 fn build_add_command(
@@ -195,7 +216,10 @@ mod tests {
     #[test]
     fn test_parse_find_output_returns_trimmed_password() {
         let parsed = parse_find_output(&output(0, "go-keyring-base64:YWJj\n", "")).unwrap();
-        assert_eq!(parsed, Some("go-keyring-base64:YWJj".to_string()));
+        assert_eq!(
+            parsed,
+            Some(EncodedSecret("go-keyring-base64:YWJj".to_string()))
+        );
     }
 
     #[test]
@@ -218,13 +242,13 @@ mod tests {
     fn test_parse_find_output_returns_empty_string_when_stdout_is_blank() {
         // `decode_password` turns "" into None downstream; this pins the contract it relies on.
         let parsed = parse_find_output(&output(0, "\n", "")).unwrap();
-        assert_eq!(parsed, Some(String::new()));
+        assert_eq!(parsed, Some(EncodedSecret(String::new())));
     }
 
     #[test]
     fn test_parse_find_output_keeps_value_when_marker_appears_on_success() {
         let parsed = parse_find_output(&output(0, "secret\n", "could not be found")).unwrap();
-        assert_eq!(parsed, Some("secret".to_string()));
+        assert_eq!(parsed, Some(EncodedSecret("secret".to_string())));
     }
 
     #[test]
@@ -311,24 +335,23 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn test_round_trip_against_real_keychain() {
-        let service = format!("atlascli_test-security-cli-{}", std::process::id());
+        use crate::secrets::ProfileName;
+        let profile =
+            ProfileName::new(format!("test-security-cli-{}", std::process::id())).unwrap();
+        let service = KeychainService::for_profile(&profile);
         let account = "smoke";
+        let abc = EncodedSecret("go-keyring-base64:YWJj".to_string());
+        let xyz = EncodedSecret("go-keyring-base64:eHl6".to_string());
 
         assert_eq!(get(&service, account).unwrap(), None);
         assert!(is_available(&service, account));
 
-        set(&service, account, "go-keyring-base64:YWJj").unwrap();
-        assert_eq!(
-            get(&service, account).unwrap(),
-            Some("go-keyring-base64:YWJj".to_string())
-        );
+        set(&service, account, &abc).unwrap();
+        assert_eq!(get(&service, account).unwrap(), Some(abc));
 
         // `-U` must update in place rather than fail on the existing item.
-        set(&service, account, "go-keyring-base64:eHl6").unwrap();
-        assert_eq!(
-            get(&service, account).unwrap(),
-            Some("go-keyring-base64:eHl6".to_string())
-        );
+        set(&service, account, &xyz).unwrap();
+        assert_eq!(get(&service, account).unwrap(), Some(xyz));
 
         delete(&service, account).unwrap();
         assert_eq!(get(&service, account).unwrap(), None);

@@ -62,7 +62,7 @@ use tower::{Layer, Service};
 use tracing::{debug, info, warn};
 
 use crate::config::{AtlasCLIConfig, AuthType};
-use crate::secrets::{Secret, SecretStore, UserAccount};
+use crate::secrets::{ProfileName, Secret, SecretStore, UnixTimestamp, UserAccount};
 
 use super::digest;
 use super::error::{AuthError, FromConfigError};
@@ -103,7 +103,7 @@ pub enum AuthMethod {
         /// Used to persist refreshed tokens so they survive across CLI invocations.
         secret_store: Box<dyn SecretStore>,
         /// The CLI profile name, used as the key for the secret store.
-        profile_name: String,
+        profile_name: ProfileName,
     },
 
     /// OAuth2 Bearer authentication using the client credentials grant.
@@ -121,7 +121,7 @@ pub enum AuthMethod {
         /// across process invocations (analogous to `UserAccount`).
         secret_store: Option<Box<dyn SecretStore>>,
         /// The profile name used as the key in `secret_store`.
-        profile_name: Option<String>,
+        profile_name: Option<ProfileName>,
     },
 
     /// HTTP Digest authentication using API keys.
@@ -281,8 +281,7 @@ impl AuthMethod {
 
                 // Persist the acquired token so subsequent process invocations
                 // can reuse it without hitting the token endpoint again.
-                if let (Some(store), Some(name)) = (secret_store.as_mut(), profile_name.as_deref())
-                {
+                if let (Some(store), Some(name)) = (secret_store.as_mut(), profile_name.as_ref()) {
                     store.set(
                         name,
                         Secret::ServiceAccount(crate::secrets::ServiceAccount {
@@ -359,7 +358,7 @@ impl AuthenticationLayer {
         token_endpoint: String,
         client_id: String,
         secret_store: Box<dyn SecretStore>,
-        profile_name: String,
+        profile_name: ProfileName,
     ) -> Self {
         let cached_token = access_token.map(CachedToken::new);
 
@@ -389,10 +388,9 @@ impl AuthenticationLayer {
     ///
     /// * `access_token` - A pre-existing access token to seed the cache (avoids
     ///   a token endpoint round-trip on the first request).
-    /// * `token_expires_at` - Unix timestamp (seconds since epoch) at which
-    ///   `access_token` should be proactively refreshed. Ignored when
-    ///   `access_token` is `None`. If the timestamp is already in the past,
-    ///   the token is treated as expired and not cached.
+    /// * `token_expires_at` - When `access_token` should be proactively
+    ///   refreshed. Ignored when `access_token` is `None`. If the timestamp
+    ///   is already in the past, the token is treated as expired and not cached.
     /// * `client_id` / `client_secret` - OAuth2 client credentials.
     /// * `token_endpoint` - URL to POST to when acquiring or refreshing tokens.
     /// * `secret_store` - Optional store for persisting acquired tokens.
@@ -400,15 +398,15 @@ impl AuthenticationLayer {
     ///   `secret_store` is `Some`).
     pub fn service_account(
         access_token: Option<String>,
-        token_expires_at: Option<u64>,
+        token_expires_at: Option<UnixTimestamp>,
         client_id: String,
         client_secret: String,
         token_endpoint: String,
         secret_store: Option<Box<dyn SecretStore>>,
-        profile_name: Option<String>,
+        profile_name: Option<ProfileName>,
     ) -> Self {
         let cached_token = match (access_token, token_expires_at) {
-            (Some(token), Some(unix_secs)) => CachedToken::from_unix_expiry(token, unix_secs),
+            (Some(token), Some(expires_at)) => CachedToken::from_unix_expiry(token, expires_at),
             (Some(token), None) => Some(CachedToken::new(token)),
             (None, _) => None,
         };
@@ -463,6 +461,7 @@ impl AuthenticationLayer {
     /// # Errors
     ///
     /// Returns [`FromConfigError`] if:
+    /// - `profile_name` is empty or contains a line break
     /// - `auth_type` is not set in the config
     /// - No credentials are found in the secret store for this profile
     /// - The secret type doesn't match the `auth_type`
@@ -490,10 +489,11 @@ impl AuthenticationLayer {
         profile_name: &str,
         secret_store: Box<dyn SecretStore>,
     ) -> Result<Self, FromConfigError> {
+        let profile_name = ProfileName::new(profile_name)?;
         let auth_type = config.auth_type.ok_or(FromConfigError::MissingAuthType)?;
 
         let secret = secret_store
-            .get(profile_name, auth_type)?
+            .get(&profile_name, auth_type)?
             .ok_or(FromConfigError::SecretNotFound)?;
 
         let base_url = config.base_url();
@@ -523,7 +523,7 @@ impl AuthenticationLayer {
                     user_account_token_endpoint,
                     client_id.to_string(),
                     secret_store,
-                    profile_name.to_string(),
+                    profile_name,
                 ))
             }
             (AuthType::ServiceAccount, Secret::ServiceAccount(sa)) => Ok(Self::service_account(
@@ -533,7 +533,7 @@ impl AuthenticationLayer {
                 sa.client_secret,
                 service_account_token_endpoint,
                 Some(secret_store),
-                Some(profile_name.to_string()),
+                Some(profile_name),
             )),
             (AuthType::ApiKeys, Secret::ApiKeys(keys)) => {
                 Ok(Self::api_keys(keys.public_api_key, keys.private_api_key))
@@ -1134,7 +1134,7 @@ mod tests {
                     token_endpoint: "https://example.com/token".into(),
                     client_id: "test-client-id".into(),
                     secret_store: Box::new(MockSecretStore::new()),
-                    profile_name: "default".into(),
+                    profile_name: "default".parse().unwrap(),
                 },
             })),
         };
@@ -1196,7 +1196,7 @@ mod tests {
                     token_endpoint: "https://example.com/token".into(),
                     client_id: "test-client-id".into(),
                     secret_store: Box::new(mock_store),
-                    profile_name: "default".into(),
+                    profile_name: "default".parse().unwrap(),
                 },
             })),
         };
@@ -1245,7 +1245,7 @@ mod tests {
                     token_endpoint: "https://example.com/token".into(),
                     client_id: "test-client-id".into(),
                     secret_store: Box::new(mock_store),
-                    profile_name: "default".into(),
+                    profile_name: "default".parse().unwrap(),
                 },
             })),
         };
@@ -1472,7 +1472,7 @@ mod tests {
                     token_endpoint: "https://example.com/token".into(),
                     client_id: "test-client-id".into(),
                     secret_store: Box::new(mock_store),
-                    profile_name: "default".into(),
+                    profile_name: "default".parse().unwrap(),
                 },
             })),
         };
