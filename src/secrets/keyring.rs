@@ -1,10 +1,21 @@
-use keyring::Entry;
+use tracing::warn;
 
 use super::{ApiKeys, Secret, SecretStore, SecretStoreError, ServiceAccount, UserAccount};
 use crate::{
     config::AuthType,
     secrets::encoding::{decode_password, encode_password},
 };
+
+// Also compiled under `test` so its pure parsing/quoting tests run on every OS.
+#[cfg(any(target_os = "macos", test))]
+mod security_cli;
+#[cfg(target_os = "macos")]
+use security_cli as backend;
+
+#[cfg(not(target_os = "macos"))]
+mod keyring_crate;
+#[cfg(not(target_os = "macos"))]
+use keyring_crate as backend;
 
 const KEY_USER_ACCOUNT_ACCESS_TOKEN: &str = "access_token";
 const KEY_USER_ACCOUNT_REFRESH_TOKEN: &str = "refresh_token";
@@ -15,12 +26,16 @@ const KEY_SERVICE_ACCOUNT_CLIENT_SECRET: &str = "client_secret";
 const KEY_SERVICE_ACCOUNT_ACCESS_TOKEN: &str = "service_account_access_token";
 const KEY_SERVICE_ACCOUNT_TOKEN_EXPIRES_AT: &str = "service_account_token_expires_at";
 
+// Same probe the Go Atlas CLI's secure store uses to decide between the
+// keyring and the config file.
+const PROBE_PROFILE: &str = "default";
+const PROBE_PROPERTY: &str = "test";
+
 pub struct KeyringSecretStore {}
 
 impl KeyringSecretStore {
     pub fn new() -> Option<Self> {
-        // Determine if the keyring is available by trying to access a dummy entry
-        if keyring_entry("default", "dummy").is_ok() {
+        if backend::is_available(&build_service_name(PROBE_PROFILE), PROBE_PROPERTY) {
             Some(Self {})
         } else {
             None
@@ -32,34 +47,18 @@ fn build_service_name(profile_name: &str) -> String {
     format!("atlascli_{}", profile_name)
 }
 
-fn keyring_entry(profile_name: &str, property_name: &str) -> Result<Entry, SecretStoreError> {
-    Entry::new(&build_service_name(profile_name), property_name).map_err(|e| {
-        SecretStoreError::InvalidKeyStoreFormat {
-            reason: e.to_string(),
-        }
-    })
-}
-
 fn get_keyring_value(
     profile_name: &str,
     property_name: &str,
 ) -> Result<Option<String>, SecretStoreError> {
-    let entry = keyring_entry(profile_name, property_name)?;
-    match entry.get_password() {
-        Ok(value) => Ok(decode_password(value)?),
-        Err(e) => match e {
-            keyring::Error::NoEntry => Ok(None),
-            e => Err(SecretStoreError::InvalidKeyStoreFormat {
-                reason: e.to_string(),
-            }),
-        },
+    match backend::get(&build_service_name(profile_name), property_name)? {
+        Some(value) => Ok(decode_password(value)?),
+        None => Ok(None),
     }
 }
 
-fn try_delete_entry(profile_name: &str, property_name: &str) {
-    if let Ok(entry) = keyring_entry(profile_name, property_name) {
-        _ = entry.delete_credential();
-    }
+fn delete_keyring_value(profile_name: &str, property_name: &str) -> Result<(), SecretStoreError> {
+    backend::delete(&build_service_name(profile_name), property_name)
 }
 
 fn get_base_secret<S: Into<Secret>>(
@@ -82,12 +81,11 @@ fn set_keyring_value(
     property_name: &str,
     value: &str,
 ) -> Result<(), SecretStoreError> {
-    let entry = keyring_entry(profile_name, property_name)?;
-    entry
-        .set_password(encode_password(value).as_ref())
-        .map_err(|e| SecretStoreError::KeyStoreUnavailable {
-            reason: e.to_string(),
-        })
+    backend::set(
+        &build_service_name(profile_name),
+        property_name,
+        encode_password(value).as_ref(),
+    )
 }
 
 impl SecretStore for KeyringSecretStore {
@@ -151,6 +149,15 @@ impl SecretStore for KeyringSecretStore {
                 Ok(())
             }
             Secret::ServiceAccount(service_account) => {
+                // Clear stale cached-token keys before writing the new client
+                // credentials: if a delete fails midway we must not leave a fresh
+                // client_id paired with the previous account's access token.
+                if service_account.access_token.is_none() {
+                    delete_keyring_value(profile_name, KEY_SERVICE_ACCOUNT_ACCESS_TOKEN)?;
+                }
+                if service_account.token_expires_at.is_none() {
+                    delete_keyring_value(profile_name, KEY_SERVICE_ACCOUNT_TOKEN_EXPIRES_AT)?;
+                }
                 set_keyring_value(
                     profile_name,
                     KEY_SERVICE_ACCOUNT_CLIENT_ID,
@@ -161,21 +168,15 @@ impl SecretStore for KeyringSecretStore {
                     KEY_SERVICE_ACCOUNT_CLIENT_SECRET,
                     &service_account.client_secret,
                 )?;
-                match &service_account.access_token {
-                    Some(token) => {
-                        set_keyring_value(profile_name, KEY_SERVICE_ACCOUNT_ACCESS_TOKEN, token)?;
-                    }
-                    None => try_delete_entry(profile_name, KEY_SERVICE_ACCOUNT_ACCESS_TOKEN),
+                if let Some(token) = &service_account.access_token {
+                    set_keyring_value(profile_name, KEY_SERVICE_ACCOUNT_ACCESS_TOKEN, token)?;
                 }
-                match service_account.token_expires_at {
-                    Some(expires_at) => {
-                        set_keyring_value(
-                            profile_name,
-                            KEY_SERVICE_ACCOUNT_TOKEN_EXPIRES_AT,
-                            &expires_at.to_string(),
-                        )?;
-                    }
-                    None => try_delete_entry(profile_name, KEY_SERVICE_ACCOUNT_TOKEN_EXPIRES_AT),
+                if let Some(expires_at) = service_account.token_expires_at {
+                    set_keyring_value(
+                        profile_name,
+                        KEY_SERVICE_ACCOUNT_TOKEN_EXPIRES_AT,
+                        &expires_at.to_string(),
+                    )?;
                 }
                 Ok(())
             }
@@ -196,15 +197,23 @@ impl SecretStore for KeyringSecretStore {
     }
 
     fn delete(&mut self, profile_name: &str) -> Result<(), SecretStoreError> {
-        try_delete_entry(profile_name, KEY_USER_ACCOUNT_ACCESS_TOKEN);
-        try_delete_entry(profile_name, KEY_USER_ACCOUNT_REFRESH_TOKEN);
-        try_delete_entry(profile_name, KEY_API_KEYS_PUBLIC_API_KEY);
-        try_delete_entry(profile_name, KEY_API_KEYS_PRIVATE_API_KEY);
-        try_delete_entry(profile_name, KEY_SERVICE_ACCOUNT_CLIENT_ID);
-        try_delete_entry(profile_name, KEY_SERVICE_ACCOUNT_CLIENT_SECRET);
-        try_delete_entry(profile_name, KEY_SERVICE_ACCOUNT_ACCESS_TOKEN);
-        try_delete_entry(profile_name, KEY_SERVICE_ACCOUNT_TOKEN_EXPIRES_AT);
-
-        Ok(())
+        // Attempt every key so one failure doesn't leave the rest behind.
+        let mut first_error = None;
+        for property_name in [
+            KEY_USER_ACCOUNT_ACCESS_TOKEN,
+            KEY_USER_ACCOUNT_REFRESH_TOKEN,
+            KEY_API_KEYS_PUBLIC_API_KEY,
+            KEY_API_KEYS_PRIVATE_API_KEY,
+            KEY_SERVICE_ACCOUNT_CLIENT_ID,
+            KEY_SERVICE_ACCOUNT_CLIENT_SECRET,
+            KEY_SERVICE_ACCOUNT_ACCESS_TOKEN,
+            KEY_SERVICE_ACCOUNT_TOKEN_EXPIRES_AT,
+        ] {
+            if let Err(e) = delete_keyring_value(profile_name, property_name) {
+                warn!(property_name, error = %e, "failed to delete keyring entry");
+                first_error.get_or_insert(e);
+            }
+        }
+        first_error.map_or(Ok(()), Err)
     }
 }

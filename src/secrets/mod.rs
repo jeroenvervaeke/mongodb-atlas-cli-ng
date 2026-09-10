@@ -18,6 +18,8 @@ pub enum SecretStoreError {
     InvalidKeyStoreFormat { reason: String },
     #[error("Failed to serialize key store: {reason}")]
     Serialization { reason: String },
+    #[error("Secret too large for the key store: {actual} bytes, max {max}")]
+    SecretTooLarge { actual: usize, max: usize },
 }
 
 /// Trait for reading and writing authentication secrets.
