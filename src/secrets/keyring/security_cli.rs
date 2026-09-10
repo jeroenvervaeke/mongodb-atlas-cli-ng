@@ -306,6 +306,56 @@ mod tests {
         target - with_one_byte + 1
     }
 
+    /// Runs against the real login keychain; pins the whole `security` interop
+    /// contract (find/add/update/delete, exit codes, not-found detection).
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_round_trip_against_real_keychain() {
+        let service = format!("atlascli_test-security-cli-{}", std::process::id());
+        let account = "smoke";
+
+        assert_eq!(get(&service, account).unwrap(), None);
+        assert!(is_available(&service, account));
+
+        set(&service, account, "go-keyring-base64:YWJj").unwrap();
+        assert_eq!(
+            get(&service, account).unwrap(),
+            Some("go-keyring-base64:YWJj".to_string())
+        );
+
+        // `-U` must update in place rather than fail on the existing item.
+        set(&service, account, "go-keyring-base64:eHl6").unwrap();
+        assert_eq!(
+            get(&service, account).unwrap(),
+            Some("go-keyring-base64:eHl6".to_string())
+        );
+
+        delete(&service, account).unwrap();
+        assert_eq!(get(&service, account).unwrap(), None);
+        delete(&service, account).unwrap();
+    }
+
+    /// `set` relies on `security -i` exiting non-zero when a command fails.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_interactive_mode_propagates_command_failure() {
+        let mut child = Command::new(SECURITY_BIN)
+            .arg("-i")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        stdin
+            .write_all(b"delete-generic-password -s atlascli_test-missing -a nope\n")
+            .unwrap();
+        drop(stdin);
+        let output = child.wait_with_output().unwrap();
+        assert!(!output.status.success());
+        assert!(is_not_found(&output));
+    }
+
     #[test]
     fn test_quote_empty_string() {
         assert_eq!(quote(""), "''");
