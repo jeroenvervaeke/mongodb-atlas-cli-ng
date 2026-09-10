@@ -43,7 +43,17 @@ pub fn set(service: &str, account: &str, value: &str) -> Result<(), SecretStoreE
 }
 
 pub fn delete(service: &str, account: &str) -> Result<(), SecretStoreError> {
-    match entry(service, account)?.delete_credential() {
+    delete_entry(&entry(service, account)?)?;
+    // Releases before the go-keyring naming fix stored Windows credentials under
+    // keyring-rs's default `<account>.<service>` target. Drop those too so
+    // `logout` doesn't leave live keys behind in Credential Manager.
+    #[cfg(windows)]
+    delete_entry(&Entry::new(service, account).map_err(invalid_entry)?)?;
+    Ok(())
+}
+
+fn delete_entry(entry: &Entry) -> Result<(), SecretStoreError> {
+    match entry.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(backend_error(e)),
     }
@@ -55,9 +65,13 @@ fn entry(service: &str, account: &str) -> Result<Entry, SecretStoreError> {
     let entry = Entry::new_with_target(&windows_target_name(service, account), service, account);
     #[cfg(not(windows))]
     let entry = Entry::new(service, account);
-    entry.map_err(|e| SecretStoreError::InvalidKeyStoreFormat {
+    entry.map_err(invalid_entry)
+}
+
+fn invalid_entry(e: keyring::Error) -> SecretStoreError {
+    SecretStoreError::InvalidKeyStoreFormat {
         reason: e.to_string(),
-    })
+    }
 }
 
 // Compiled under `test` on every OS so the go-keyring naming contract is checked in CI everywhere.
