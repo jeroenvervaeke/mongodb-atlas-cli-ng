@@ -22,7 +22,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
@@ -105,7 +105,7 @@ jobs:
       contents: write
     needs: [update-version-and-changelog]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.update-version-and-changelog.outputs.tag }}
 
@@ -130,7 +130,7 @@ jobs:
       id-token: write
     needs: [update-version-and-changelog]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.update-version-and-changelog.outputs.tag }}
 
