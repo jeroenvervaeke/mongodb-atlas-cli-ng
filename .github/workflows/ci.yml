@@ -82,6 +82,7 @@ jobs:
       run: |
         rustup update ${{ matrix.rust }}
         rustup default ${{ matrix.rust }}
+        rustup component add clippy
 
     - name: Install system dependencies (Linux)
       if: runner.os == 'Linux'
@@ -100,6 +101,9 @@ jobs:
 
     - name: Build
       run: cargo build --verbose
+
+    - name: Run clippy
+      run: cargo clippy --all-targets --features derive -- -D warnings
 
     - name: Run tests
       run: cargo test --verbose --lib
