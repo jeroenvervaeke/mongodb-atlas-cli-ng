@@ -1,4 +1,7 @@
-use mongodb_atlas_cli::{config, secrets::get_secret_store};
+use mongodb_atlas_cli::{
+    config,
+    secrets::{ProfileName, get_secret_store},
+};
 
 pub fn main() {
     // Load the config
@@ -13,8 +16,9 @@ pub fn main() {
 
     // Get the secret store
     let secret_store = get_secret_store().unwrap();
-    let secret = secret_store.get("default", auth_type).unwrap().unwrap();
+    let profile = ProfileName::new("default").unwrap();
+    let secret = secret_store.get(&profile, auth_type).unwrap().unwrap();
 
-    // Print the secret
+    // Print the secret (secret fields are redacted in Debug output)
     println!("{:#?}", secret);
 }

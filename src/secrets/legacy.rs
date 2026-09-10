@@ -10,7 +10,7 @@ use crate::{
     secrets::{ApiKeys, ServiceAccount, UserAccount},
 };
 
-use super::{Secret, SecretStore, SecretStoreError};
+use super::{ProfileName, Secret, SecretKey, SecretStore, SecretStoreError};
 
 pub struct LegacySecretStore {
     path: PathBuf,
@@ -25,11 +25,11 @@ impl LegacySecretStore {
 impl SecretStore for LegacySecretStore {
     fn get(
         &self,
-        profile_name: &str,
+        profile_name: &ProfileName,
         auth_type: AuthType,
     ) -> Result<Option<Secret>, SecretStoreError> {
         let mut toml_table = get_toml_table(&self.path)?;
-        let Some(profile_table) = toml_table.remove(profile_name) else {
+        let Some(profile_table) = toml_table.remove(profile_name.as_str()) else {
             return Ok(None);
         };
         let toml::Value::Table(mut profile_table) = profile_table else {
@@ -39,14 +39,14 @@ impl SecretStore for LegacySecretStore {
         Ok(Some(match auth_type {
             AuthType::ApiKeys => {
                 let Some(public_api_key) =
-                    try_get_optional_string(&mut profile_table, "public_api_key")?
+                    try_get_optional_string(&mut profile_table, SecretKey::PublicApiKey)?
                         .map(|s| s.to_string())
                 else {
                     return Ok(None);
                 };
 
                 let Some(private_api_key) =
-                    try_get_optional_string(&mut profile_table, "private_api_key")?
+                    try_get_optional_string(&mut profile_table, SecretKey::PrivateApiKey)?
                         .map(|s| s.to_string())
                 else {
                     return Ok(None);
@@ -55,28 +55,31 @@ impl SecretStore for LegacySecretStore {
                 Secret::ApiKeys(ApiKeys::new(public_api_key, private_api_key))
             }
             AuthType::ServiceAccount => {
-                let Some(client_id) = try_get_optional_string(&mut profile_table, "client_id")?
-                    .map(|s| s.to_string())
-                else {
-                    return Ok(None);
-                };
-
-                let Some(client_secret) =
-                    try_get_optional_string(&mut profile_table, "client_secret")?
+                let Some(client_id) =
+                    try_get_optional_string(&mut profile_table, SecretKey::ClientId)?
                         .map(|s| s.to_string())
                 else {
                     return Ok(None);
                 };
 
-                let access_token =
-                    try_get_optional_string(&mut profile_table, "service_account_access_token")?
-                        .map(|s| s.to_string());
+                let Some(client_secret) =
+                    try_get_optional_string(&mut profile_table, SecretKey::ClientSecret)?
+                        .map(|s| s.to_string())
+                else {
+                    return Ok(None);
+                };
+
+                let access_token = try_get_optional_string(
+                    &mut profile_table,
+                    SecretKey::ServiceAccountAccessToken,
+                )?
+                .map(|s| s.to_string());
 
                 let token_expires_at = try_get_optional_string(
                     &mut profile_table,
-                    "service_account_token_expires_at",
+                    SecretKey::ServiceAccountTokenExpiresAt,
                 )?
-                .and_then(|s| s.parse::<u64>().ok());
+                .and_then(|s| s.parse().ok());
 
                 Secret::ServiceAccount(ServiceAccount {
                     client_id,
@@ -87,14 +90,14 @@ impl SecretStore for LegacySecretStore {
             }
             AuthType::UserAccount => {
                 let Some(access_token) =
-                    try_get_optional_string(&mut profile_table, "access_token")?
+                    try_get_optional_string(&mut profile_table, SecretKey::AccessToken)?
                         .map(|s| s.to_string())
                 else {
                     return Ok(None);
                 };
 
                 let Some(refresh_token) =
-                    try_get_optional_string(&mut profile_table, "refresh_token")?
+                    try_get_optional_string(&mut profile_table, SecretKey::RefreshToken)?
                         .map(|s| s.to_string())
                 else {
                     return Ok(None);
@@ -104,10 +107,10 @@ impl SecretStore for LegacySecretStore {
         }))
     }
 
-    fn set(&mut self, profile_name: &str, secret: Secret) -> Result<(), SecretStoreError> {
+    fn set(&mut self, profile_name: &ProfileName, secret: Secret) -> Result<(), SecretStoreError> {
         let mut toml_table = get_toml_table(&self.path)?;
         let mut profile_table = toml_table
-            .entry(profile_name)
+            .entry(profile_name.as_str())
             .or_insert(toml::Value::Table(Table::new()));
         let toml::Value::Table(profile_table) = &mut profile_table else {
             return Ok(());
@@ -115,43 +118,54 @@ impl SecretStore for LegacySecretStore {
 
         match secret {
             Secret::ApiKeys(api_keys) => {
-                profile_table.insert("public_api_key".to_string(), api_keys.public_api_key.into());
                 profile_table.insert(
-                    "private_api_key".to_string(),
+                    SecretKey::PublicApiKey.as_str().to_string(),
+                    api_keys.public_api_key.into(),
+                );
+                profile_table.insert(
+                    SecretKey::PrivateApiKey.as_str().to_string(),
                     api_keys.private_api_key.into(),
                 );
             }
             Secret::ServiceAccount(service_account) => {
-                profile_table.insert("client_id".to_string(), service_account.client_id.into());
                 profile_table.insert(
-                    "client_secret".to_string(),
+                    SecretKey::ClientId.as_str().to_string(),
+                    service_account.client_id.into(),
+                );
+                profile_table.insert(
+                    SecretKey::ClientSecret.as_str().to_string(),
                     service_account.client_secret.into(),
                 );
                 match service_account.access_token {
                     Some(token) => {
-                        profile_table
-                            .insert("service_account_access_token".to_string(), token.into());
+                        profile_table.insert(
+                            SecretKey::ServiceAccountAccessToken.as_str().to_string(),
+                            token.into(),
+                        );
                     }
                     None => {
-                        profile_table.remove("service_account_access_token");
+                        profile_table.remove(SecretKey::ServiceAccountAccessToken.as_str());
                     }
                 }
                 match service_account.token_expires_at {
                     Some(expires_at) => {
                         profile_table.insert(
-                            "service_account_token_expires_at".to_string(),
+                            SecretKey::ServiceAccountTokenExpiresAt.as_str().to_string(),
                             expires_at.to_string().into(),
                         );
                     }
                     None => {
-                        profile_table.remove("service_account_token_expires_at");
+                        profile_table.remove(SecretKey::ServiceAccountTokenExpiresAt.as_str());
                     }
                 }
             }
             Secret::UserAccount(user_account) => {
-                profile_table.insert("access_token".to_string(), user_account.access_token.into());
                 profile_table.insert(
-                    "refresh_token".to_string(),
+                    SecretKey::AccessToken.as_str().to_string(),
+                    user_account.access_token.into(),
+                );
+                profile_table.insert(
+                    SecretKey::RefreshToken.as_str().to_string(),
                     user_account.refresh_token.into(),
                 );
             }
@@ -162,9 +176,9 @@ impl SecretStore for LegacySecretStore {
         Ok(())
     }
 
-    fn delete(&mut self, profile_name: &str) -> Result<(), SecretStoreError> {
+    fn delete(&mut self, profile_name: &ProfileName) -> Result<(), SecretStoreError> {
         let mut toml_table = get_toml_table(&self.path)?;
-        toml_table.remove(profile_name);
+        toml_table.remove(profile_name.as_str());
         save_toml_table(&self.path, toml_table)?;
         Ok(())
     }
@@ -182,11 +196,11 @@ fn get_toml_table(path: impl AsRef<Path>) -> Result<Table, SecretStoreError> {
     Ok(toml)
 }
 
-fn try_get_optional_string<'a>(
-    table: &'a mut Table,
-    key: &'static str,
-) -> Result<Option<&'a mut String>, SecretStoreError> {
-    // Remove the key from the table
+fn try_get_optional_string(
+    table: &mut Table,
+    key: SecretKey,
+) -> Result<Option<&mut String>, SecretStoreError> {
+    let key = key.as_str();
     let Some(value) = table.get_mut(key) else {
         return Ok(None);
     };

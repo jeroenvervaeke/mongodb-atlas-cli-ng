@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::string::FromUtf8Error;
 
 #[cfg(target_os = "macos")]
@@ -12,6 +11,27 @@ use crate::secrets::SecretStoreError;
 const HEX_ENCODING_PREFIX: &str = "go-keyring-encoded:";
 #[cfg(target_os = "macos")]
 const BASE64_ENCODING_PREFIX: &str = "go-keyring-base64:";
+
+/// A secret exactly as it sits in the OS keychain: on macOS base64 behind a
+/// go-keyring prefix, elsewhere the raw value.
+///
+/// Only [`encode_password`] produces one and only [`decode_password`] turns
+/// it back into a plain `String`, so skipping or doubling either step does
+/// not type-check.
+#[derive(Clone, PartialEq, Eq)]
+pub struct EncodedSecret(pub(crate) String);
+
+impl EncodedSecret {
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for EncodedSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("EncodedSecret([redacted])")
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum DecodePasswordError {
@@ -33,7 +53,8 @@ impl From<DecodePasswordError> for SecretStoreError {
 }
 
 #[cfg(target_os = "macos")]
-pub fn decode_password(password: String) -> Result<Option<String>, DecodePasswordError> {
+pub fn decode_password(password: EncodedSecret) -> Result<Option<String>, DecodePasswordError> {
+    let password = password.0;
     if let Some(hex_encoded_value) = password.strip_prefix(HEX_ENCODING_PREFIX) {
         let hex = hex::decode(hex_encoded_value)?;
         let decoded = String::from_utf8(hex)?;
@@ -50,8 +71,8 @@ pub fn decode_password(password: String) -> Result<Option<String>, DecodePasswor
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn decode_password(password: String) -> Result<Option<String>, DecodePasswordError> {
-    Ok(none_if_empty(password))
+pub fn decode_password(password: EncodedSecret) -> Result<Option<String>, DecodePasswordError> {
+    Ok(none_if_empty(password.0))
 }
 
 fn none_if_empty(password: String) -> Option<String> {
@@ -63,15 +84,15 @@ fn none_if_empty(password: String) -> Option<String> {
 }
 
 #[cfg(target_os = "macos")]
-pub fn encode_password<'a>(password: &'a str) -> Cow<'a, str> {
+pub fn encode_password(password: &str) -> EncodedSecret {
     // We picked base64 as the default encoding because it is what the zalando keyring library uses by default
     let base64 = BASE64_STANDARD.encode(password);
-    Cow::Owned(format!("{}{}", BASE64_ENCODING_PREFIX, base64))
+    EncodedSecret(format!("{}{}", BASE64_ENCODING_PREFIX, base64))
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn encode_password<'a>(password: &'a str) -> Cow<'a, str> {
-    Cow::Borrowed(password)
+pub fn encode_password(password: &str) -> EncodedSecret {
+    EncodedSecret(password.to_string())
 }
 
 #[cfg(test)]
@@ -81,31 +102,36 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn test_decode_hex_password() {
-        let password = "go-keyring-encoded:616263";
-        let decoded = decode_password(password.to_string()).unwrap();
+        let password = EncodedSecret("go-keyring-encoded:616263".to_string());
+        let decoded = decode_password(password).unwrap();
         assert_eq!(decoded, Some("abc".to_string()));
     }
 
     #[cfg(target_os = "macos")]
     #[test]
     fn test_decode_base64_password() {
-        let password = "go-keyring-base64:YWJj";
-        let decoded = decode_password(password.to_string()).unwrap();
+        let password = EncodedSecret("go-keyring-base64:YWJj".to_string());
+        let decoded = decode_password(password).unwrap();
         assert_eq!(decoded, Some("abc".to_string()));
     }
 
     #[test]
     fn test_decode_without_prefix() {
-        let password = "abc";
-        let decoded = decode_password(password.to_string()).unwrap();
+        let password = EncodedSecret("abc".to_string());
+        let decoded = decode_password(password).unwrap();
         assert_eq!(decoded, Some("abc".to_string()));
     }
 
     #[cfg(target_os = "macos")]
     #[test]
     fn test_encode_password() {
-        let password = "abc";
-        let encoded = encode_password(password);
-        assert_eq!(encoded, "go-keyring-base64:YWJj");
+        let encoded = encode_password("abc");
+        assert_eq!(encoded.as_str(), "go-keyring-base64:YWJj");
+    }
+
+    #[test]
+    fn test_debug_does_not_print_payload() {
+        let encoded = encode_password("hunter2");
+        assert!(!format!("{encoded:?}").contains("hunter2"));
     }
 }

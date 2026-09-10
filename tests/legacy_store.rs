@@ -4,12 +4,17 @@ use tempfile::NamedTempFile;
 use mongodb_atlas_cli::{
     config::AuthType,
     secrets::{
-        ApiKeys, Secret, SecretStore, ServiceAccount, UserAccount, legacy::LegacySecretStore,
+        ApiKeys, ProfileName, Secret, SecretStore, ServiceAccount, UserAccount,
+        legacy::LegacySecretStore,
     },
 };
 
 mod helper;
 use helper::fixture_path;
+
+fn profile(name: &str) -> ProfileName {
+    ProfileName::new(name).unwrap()
+}
 
 #[test]
 fn legacy_store_get_user_account_profile() {
@@ -21,7 +26,7 @@ fn legacy_store_get_user_account_profile() {
     let legacy_store = LegacySecretStore::new(fixture_path("05-all-credential-types.toml"));
 
     let actual = legacy_store
-        .get("profile_with_user_account", AuthType::UserAccount)
+        .get(&profile("profile_with_user_account"), AuthType::UserAccount)
         .expect("should be able to load config file")
         .expect("tokens should be present");
 
@@ -39,7 +44,7 @@ fn legacy_store_get_api_keys_profile() {
     let legacy_store = LegacySecretStore::new(fixture_path("05-all-credential-types.toml"));
 
     let actual = legacy_store
-        .get("profile_with_api_keys", AuthType::ApiKeys)
+        .get(&profile("profile_with_api_keys"), AuthType::ApiKeys)
         .expect("should be able to load config file")
         .expect("api keys should be present");
 
@@ -57,7 +62,10 @@ fn legacy_store_get_service_account_profile() {
     let legacy_store = LegacySecretStore::new(fixture_path("05-all-credential-types.toml"));
 
     let actual = legacy_store
-        .get("profile_with_service_account", AuthType::ServiceAccount)
+        .get(
+            &profile("profile_with_service_account"),
+            AuthType::ServiceAccount,
+        )
         .expect("should be able to load config file")
         .expect("service account should be present");
 
@@ -71,7 +79,7 @@ fn legacy_store_get_profile_not_found() {
 
     assert!(
         legacy_store
-            .get("profile_not_found", AuthType::UserAccount)
+            .get(&profile("profile_not_found"), AuthType::UserAccount)
             .expect("should be able to load config file")
             .is_none()
     );
@@ -99,7 +107,7 @@ fn legacy_store_update_user_account_profile() {
 
     legacy_store
         .set(
-            "profile_with_user_account",
+            &profile("profile_with_user_account"),
             Secret::UserAccount(UserAccount::new(
                 updated_user_account.to_string(),
                 updated_refresh_token.to_string(),
@@ -110,7 +118,7 @@ fn legacy_store_update_user_account_profile() {
     // Get the updated user account profile
     legacy_store
         .set(
-            "profile_with_user_account",
+            &profile("profile_with_user_account"),
             Secret::UserAccount(UserAccount::new(
                 updated_user_account.to_string(),
                 updated_refresh_token.to_string(),
@@ -124,7 +132,7 @@ fn legacy_store_update_user_account_profile() {
     ));
 
     let actual = legacy_store
-        .get("profile_with_user_account", AuthType::UserAccount)
+        .get(&profile("profile_with_user_account"), AuthType::UserAccount)
         .expect("should be able to load config file")
         .expect("user account should be present");
 
@@ -154,7 +162,7 @@ fn legacy_store_update_api_keys_profile() {
 
     legacy_store
         .set(
-            "profile_with_api_keys",
+            &profile("profile_with_api_keys"),
             Secret::ApiKeys(ApiKeys::new(
                 updated_public_api_key.to_string(),
                 updated_private_api_key.to_string(),
@@ -165,7 +173,7 @@ fn legacy_store_update_api_keys_profile() {
     // Get the updated user account profile
     legacy_store
         .set(
-            "profile_with_api_keys",
+            &profile("profile_with_api_keys"),
             Secret::ApiKeys(ApiKeys::new(
                 updated_public_api_key.to_string(),
                 updated_private_api_key.to_string(),
@@ -179,7 +187,7 @@ fn legacy_store_update_api_keys_profile() {
     ));
 
     let actual = legacy_store
-        .get("profile_with_api_keys", AuthType::ApiKeys)
+        .get(&profile("profile_with_api_keys"), AuthType::ApiKeys)
         .expect("should be able to load config file")
         .expect("api keys should be present");
 
@@ -209,7 +217,7 @@ fn legacy_store_update_service_account_profile() {
 
     legacy_store
         .set(
-            "profile_with_service_account",
+            &profile("profile_with_service_account"),
             Secret::ServiceAccount(ServiceAccount::new(
                 updated_client_id.to_string(),
                 updated_client_secret.to_string(),
@@ -220,7 +228,7 @@ fn legacy_store_update_service_account_profile() {
     // Get the updated user account profile
     legacy_store
         .set(
-            "profile_with_service_account",
+            &profile("profile_with_service_account"),
             Secret::ServiceAccount(ServiceAccount::new(
                 updated_client_id.to_string(),
                 updated_client_secret.to_string(),
@@ -234,7 +242,10 @@ fn legacy_store_update_service_account_profile() {
     ));
 
     let actual = legacy_store
-        .get("profile_with_service_account", AuthType::ServiceAccount)
+        .get(
+            &profile("profile_with_service_account"),
+            AuthType::ServiceAccount,
+        )
         .expect("should be able to load config file")
         .expect("service account should be present");
 
@@ -264,7 +275,7 @@ fn legacy_store_set_new_profile() {
 
     legacy_store
         .set(
-            "profile_inserted_user_account",
+            &profile("profile_inserted_user_account"),
             Secret::UserAccount(UserAccount::new(
                 inserted_user_account.to_string(),
                 inserted_access_token.to_string(),
@@ -275,7 +286,7 @@ fn legacy_store_set_new_profile() {
     // Get the updated user account profile
     legacy_store
         .set(
-            "profile_inserted_user_account",
+            &profile("profile_inserted_user_account"),
             Secret::UserAccount(UserAccount::new(
                 inserted_user_account.to_string(),
                 inserted_access_token.to_string(),
@@ -289,7 +300,10 @@ fn legacy_store_set_new_profile() {
     ));
 
     let actual = legacy_store
-        .get("profile_inserted_user_account", AuthType::UserAccount)
+        .get(
+            &profile("profile_inserted_user_account"),
+            AuthType::UserAccount,
+        )
         .expect("should be able to load config file")
         .expect("new user account should be present");
 

@@ -15,40 +15,47 @@
 
 use keyring::Entry;
 
-use crate::secrets::SecretStoreError;
+use crate::secrets::{SecretStoreError, encoding::EncodedSecret, keyring::KeychainService};
 
-pub fn is_available(service: &str, account: &str) -> bool {
+pub fn is_available(service: &KeychainService, account: &str) -> bool {
     let Ok(entry) = entry(service, account) else {
         return false;
     };
     is_reachable(entry.get_secret())
 }
 
-pub fn get(service: &str, account: &str) -> Result<Option<String>, SecretStoreError> {
+pub fn get(
+    service: &KeychainService,
+    account: &str,
+) -> Result<Option<EncodedSecret>, SecretStoreError> {
     match entry(service, account)?.get_secret() {
-        Ok(bytes) => String::from_utf8(bytes).map(Some).map_err(|e| {
-            SecretStoreError::InvalidKeyStoreFormat {
+        Ok(bytes) => String::from_utf8(bytes)
+            .map(|s| Some(EncodedSecret(s)))
+            .map_err(|e| SecretStoreError::InvalidKeyStoreFormat {
                 reason: format!("secret is not valid UTF-8: {e}"),
-            }
-        }),
+            }),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(backend_error(e)),
     }
 }
 
-pub fn set(service: &str, account: &str, value: &str) -> Result<(), SecretStoreError> {
+pub fn set(
+    service: &KeychainService,
+    account: &str,
+    value: &EncodedSecret,
+) -> Result<(), SecretStoreError> {
     entry(service, account)?
-        .set_secret(value.as_bytes())
+        .set_secret(value.as_str().as_bytes())
         .map_err(backend_error)
 }
 
-pub fn delete(service: &str, account: &str) -> Result<(), SecretStoreError> {
+pub fn delete(service: &KeychainService, account: &str) -> Result<(), SecretStoreError> {
     delete_entry(&entry(service, account)?)?;
     // Releases before the go-keyring naming fix stored Windows credentials under
     // keyring-rs's default `<account>.<service>` target. Drop those too so
     // `logout` doesn't leave live keys behind in Credential Manager.
     #[cfg(windows)]
-    delete_entry(&Entry::new(service, account).map_err(invalid_entry)?)?;
+    delete_entry(&Entry::new(service.as_str(), account).map_err(invalid_entry)?)?;
     Ok(())
 }
 
@@ -59,7 +66,8 @@ fn delete_entry(entry: &Entry) -> Result<(), SecretStoreError> {
     }
 }
 
-fn entry(service: &str, account: &str) -> Result<Entry, SecretStoreError> {
+fn entry(service: &KeychainService, account: &str) -> Result<Entry, SecretStoreError> {
+    let service = service.as_str();
     // keyring-rs defaults to `<account>.<service>`; go-keyring uses `<service>:<account>`.
     #[cfg(windows)]
     let entry = Entry::new_with_target(&windows_target_name(service, account), service, account);
