@@ -1,3 +1,12 @@
+## [0.3.0] - 2026-09-10
+
+### 🐛 Bug Fixes
+
+- *(secrets)* Stop macOS keychain re-prompts and match go-keyring on every OS (#52)
+
+### 🚜 Refactor
+
+- *(secrets)* Introduce domain newtypes for secret storage (#54)
 ## [0.2.0] - 2026-03-11
 
 ### 🚀 Features
