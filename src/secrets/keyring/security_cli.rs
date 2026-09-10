@@ -121,11 +121,9 @@ fn build_add_command(
         quote(value)
     );
     if command.len() > MAX_COMMAND_LEN {
-        return Err(SecretStoreError::KeyStoreUnavailable {
-            reason: format!(
-                "secret too large for macOS keychain: the quoted `security` command is {} bytes, max {MAX_COMMAND_LEN}",
-                command.len()
-            ),
+        return Err(SecretStoreError::SecretTooLarge {
+            actual: command.len(),
+            max: MAX_COMMAND_LEN,
         });
     }
     Ok(command)
@@ -278,9 +276,10 @@ mod tests {
     fn test_build_add_command_rejects_command_one_byte_over_limit() {
         let value = "x".repeat(padding_to_reach(MAX_COMMAND_LEN) + 1);
         let err = build_add_command("s", "a", &value).unwrap_err();
-        assert!(
-            matches!(err, SecretStoreError::KeyStoreUnavailable { reason } if reason.contains("too large"))
-        );
+        assert!(matches!(
+            err,
+            SecretStoreError::SecretTooLarge { actual, max } if actual == MAX_COMMAND_LEN + 1 && max == MAX_COMMAND_LEN
+        ));
     }
 
     #[test]
