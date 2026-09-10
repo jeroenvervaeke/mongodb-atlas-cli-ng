@@ -57,8 +57,10 @@ typed-builder = { version = "0.23.2", optional = true }
 
 # macOS drives /usr/bin/security directly (see src/secrets/keyring/security_cli.rs),
 # so the keyring crate is only needed on the other platforms.
+# No `crypto-*` feature on purpose: secrets cross the (local, per-user) D-Bus
+# session bus in a plain session, exactly like go-keyring's `OpenSession("plain")`.
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-keyring = { version = "3.6.3", features = ["windows-native", "linux-native-sync-persistent"] }
+keyring = { version = "3.6.3", features = ["windows-native", "sync-secret-service"] }
 
 [dev-dependencies]
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
