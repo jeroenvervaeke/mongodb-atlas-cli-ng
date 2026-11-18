@@ -38,10 +38,7 @@ pub(crate) enum DiscoveryError {
     InvalidMetadata(#[from] serde_json::Error),
 
     #[error("authorization server discovery issuer {actual} does not match issuer {expected}")]
-    IssuerMismatch {
-        expected: HttpsUrl,
-        actual: HttpsUrl,
-    },
+    IssuerMismatch { expected: String, actual: String },
 }
 
 /// Fetch the metadata of `issuer` through the provided Tower service.
@@ -85,8 +82,8 @@ where
     let metadata: AuthServerMetadata = serde_json::from_slice(&body)?;
     if metadata.issuer != *issuer {
         return Err(DiscoveryError::IssuerMismatch {
-            expected: issuer.clone(),
-            actual: metadata.issuer,
+            expected: issuer.to_string(),
+            actual: metadata.issuer.into(),
         });
     }
 
