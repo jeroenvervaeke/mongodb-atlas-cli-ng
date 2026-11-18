@@ -70,10 +70,17 @@ async fn main() {
         std::process::exit(1);
     });
 
+    // The session store keeps the non-secret part of a `user_account` login
+    // (token expiry, authorization server) in the profile of the config file.
+    let session_store = config::get_session_store(profile).unwrap_or_else(|e| {
+        eprintln!("Failed to locate config file: {e}");
+        std::process::exit(1);
+    });
+
     // No token acquirer needed — the middleware handles OAuth token refresh
     // internally by using the inner Tower service.
-    let auth_layer =
-        AuthenticationLayer::from_config(&cfg, profile, secret_store).unwrap_or_else(|e| {
+    let auth_layer = AuthenticationLayer::from_config(&cfg, profile, secret_store, session_store)
+        .unwrap_or_else(|e| {
             eprintln!("Failed to create auth layer: {e}");
             std::process::exit(1);
         });

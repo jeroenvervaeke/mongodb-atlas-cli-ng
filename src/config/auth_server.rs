@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -6,8 +8,8 @@ use crate::https_url::HttpsUrl;
 /// OAuth Authorization Server metadata (RFC 8414) with the moment it has to be
 /// discovered again.
 ///
-/// Serializes to the JSON stored in the `auth_server_metadata` profile
-/// property, shared with the Go Atlas CLI.
+/// Its JSON form is the value of the `auth_server_metadata` profile property,
+/// shared with the Go Atlas CLI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CachedAuthServerMetadata {
     pub metadata: AuthServerMetadata,
@@ -18,6 +20,14 @@ impl CachedAuthServerMetadata {
     /// Whether this cache can be used for `issuer` at `now`.
     pub fn is_fresh_for(&self, issuer: &HttpsUrl, now: DateTime<Utc>) -> bool {
         self.metadata.issuer == *issuer && self.cache_expiry > now
+    }
+}
+
+impl FromStr for CachedAuthServerMetadata {
+    type Err = serde_json::Error;
+
+    fn from_str(json: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(json)
     }
 }
 
@@ -53,7 +63,7 @@ mod tests {
 
     #[test]
     fn reads_and_writes_the_go_cache_format() {
-        let cache: CachedAuthServerMetadata = serde_json::from_str(GO_CACHE).unwrap();
+        let cache: CachedAuthServerMetadata = GO_CACHE.parse().unwrap();
 
         assert_eq!(
             cache.metadata.token_endpoint,
@@ -76,12 +86,12 @@ mod tests {
             "https://authorize.mongodb.com/token",
             "http://authorize.mongodb.com/token",
         );
-        assert!(serde_json::from_str::<CachedAuthServerMetadata>(&cache).is_err());
+        assert!(cache.parse::<CachedAuthServerMetadata>().is_err());
     }
 
     #[test]
     fn is_fresh_only_for_its_own_issuer_before_the_cache_expiry() {
-        let cache: CachedAuthServerMetadata = serde_json::from_str(GO_CACHE).unwrap();
+        let cache: CachedAuthServerMetadata = GO_CACHE.parse().unwrap();
         let own = issuer("https://authorize.mongodb.com");
         let before = cache.cache_expiry - chrono::TimeDelta::seconds(1);
 

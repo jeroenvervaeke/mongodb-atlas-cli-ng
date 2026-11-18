@@ -16,8 +16,8 @@ use tracing::debug;
 use url::Url;
 
 use crate::{
+    config::auth_server::{AuthServerMetadata, CachedAuthServerMetadata},
     https_url::HttpsUrl,
-    secrets::auth_server::{AuthServerMetadata, CachedAuthServerMetadata},
 };
 
 const WELL_KNOWN_PATH: &str = "/.well-known/oauth-authorization-server";

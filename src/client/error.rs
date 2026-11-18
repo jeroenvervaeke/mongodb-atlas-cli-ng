@@ -7,6 +7,7 @@
 
 use std::fmt;
 
+use crate::config::SaveUserAccountSessionError;
 use crate::secrets::{InvalidProfileName, SecretStoreError};
 
 /// Errors that can occur during the authentication process.
@@ -62,6 +63,9 @@ pub enum AuthError<E> {
 
     /// Failed to persist a refreshed token to the secret store.
     SecretStoreError(SecretStoreError),
+
+    /// Failed to persist the session of a refreshed token to the config.
+    SessionStoreError(SaveUserAccountSessionError),
 }
 
 // We implement Display manually instead of using thiserror because
@@ -82,6 +86,9 @@ impl<E: fmt::Display> fmt::Display for AuthError<E> {
             AuthError::SecretStoreError(e) => {
                 write!(f, "secret store error: {e}")
             }
+            AuthError::SessionStoreError(e) => {
+                write!(f, "session store error: {e}")
+            }
         }
     }
 }
@@ -92,6 +99,7 @@ impl<E: fmt::Debug + fmt::Display> std::error::Error for AuthError<E> {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             AuthError::SecretStoreError(e) => Some(e),
+            AuthError::SessionStoreError(e) => Some(e),
             _ => None,
         }
     }
@@ -102,6 +110,12 @@ impl<E: fmt::Debug + fmt::Display> std::error::Error for AuthError<E> {
 impl<E> From<SecretStoreError> for AuthError<E> {
     fn from(e: SecretStoreError) -> Self {
         AuthError::SecretStoreError(e)
+    }
+}
+
+impl<E> From<SaveUserAccountSessionError> for AuthError<E> {
+    fn from(e: SaveUserAccountSessionError) -> Self {
+        AuthError::SessionStoreError(e)
     }
 }
 

@@ -76,6 +76,7 @@ fn all_options_config_profile_with_user_account() {
         client_id: None,
         auth_server_url: None,
         auth_client_id: None,
+        user_account_session: config::UserAccountSession::default(),
     };
 
     let actual = config::load_config_from_file(
@@ -87,6 +88,25 @@ fn all_options_config_profile_with_user_account() {
 
     // Assert that the actual config is equal to the expected config
     assert_eq!(expected, actual);
+}
+
+#[test]
+fn user_account_session_is_read_from_the_profile() {
+    let metadata = r#"{"metadata":{"issuer":"https://authorize.mongodb.com","authorization_endpoint":"https://authorize.mongodb.com/authorize","token_endpoint":"https://authorize.mongodb.com/token","revocation_endpoint":"https://authorize.mongodb.com/revoke","code_challenge_methods_supported":["S256"]},"cache_expiry":"2026-11-25T10:00:00Z"}"#;
+    let expected = config::UserAccountSession {
+        token_expiry: Some("2026-11-18T10:00:00Z".parse().unwrap()),
+        auth_server_issuer: Some("https://authorize.mongodb.com".parse().unwrap()),
+        auth_server_metadata: Some(metadata.parse().unwrap()),
+    };
+
+    let actual = config::load_config_from_file(
+        fixture_path("05-all-credential-types.toml"),
+        false,
+        Some("profile_with_user_account"),
+    )
+    .expect("should be able to load config file");
+
+    assert_eq!(expected, actual.user_account_session);
 }
 
 #[test]

@@ -7,7 +7,14 @@ use source::{AtlasCLIGlobalConfigSource, AtlasCLIProfileConfigSource};
 
 use crate::{https_url::HttpsUrl, path::GetCLICfgFilePathError};
 
+pub mod auth_server;
+pub mod session;
 pub mod source;
+
+pub use session::{
+    ConfigFileSessionStore, SaveUserAccountSessionError, UserAccountSession,
+    UserAccountSessionStore, get_session_store,
+};
 
 /// The config version of atlas-cli-core this library is compatible with.
 ///
@@ -72,6 +79,10 @@ pub struct AtlasCLIConfig {
     /// `MONGODB_ATLAS_AUTH_CLIENT_ID`. Not `client_id`, which is also the
     /// service account client ID.
     pub auth_client_id: Option<String>,
+
+    /// What the profile records about the tokens of a `user_account` login.
+    #[serde(flatten)]
+    pub user_account_session: UserAccountSession,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]

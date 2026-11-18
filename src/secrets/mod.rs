@@ -4,23 +4,15 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use chrono::{DateTime, Utc};
-
 use crate::{
     config::AuthType,
-    https_url::HttpsUrl,
     path::{GetCLICfgFilePathError, config_file},
-    secrets::{
-        auth_server::CachedAuthServerMetadata, keyring::KeyringSecretStore,
-        legacy::LegacySecretStore,
-    },
+    secrets::{keyring::KeyringSecretStore, legacy::LegacySecretStore},
 };
 
-pub mod auth_server;
 pub mod encoding;
 pub mod keyring;
 pub mod legacy;
-mod profile_file;
 
 #[derive(thiserror::Error, Debug)]
 pub enum SecretStoreError {
@@ -56,10 +48,9 @@ pub trait SecretStore: Send + Sync {
 }
 
 pub fn get_secret_store() -> Result<Box<dyn SecretStore>, SecretStoreError> {
-    let config_file = config_file()?;
-    match KeyringSecretStore::new(config_file.clone()) {
+    match KeyringSecretStore::new() {
         Some(keyring_secret_store) => Ok(Box::new(keyring_secret_store) as Box<dyn SecretStore>),
-        None => Ok(Box::new(LegacySecretStore::new(config_file))),
+        None => Ok(Box::new(LegacySecretStore::new(config_file()?))),
     }
 }
 
@@ -194,7 +185,6 @@ pub enum Secret {
     ApiKeys(ApiKeys),
     ServiceAccount(ServiceAccount),
     UserAccount(UserAccount),
-    UserAccountLegacy(UserAccountLegacy),
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -270,12 +260,12 @@ impl From<ServiceAccount> for Secret {
     }
 }
 
-/// A login through the Authorization Code flow (`auth_type = "user_account"`).
+/// The tokens of a `user_account` or `user_account_legacy` login. Both auth
+/// types store them under the same keys.
 #[derive(Clone, PartialEq, Eq)]
 pub struct UserAccount {
     pub access_token: String,
     pub refresh_token: String,
-    pub session: UserAccountSession,
 }
 
 impl UserAccount {
@@ -283,7 +273,6 @@ impl UserAccount {
         Self {
             access_token,
             refresh_token,
-            session: UserAccountSession::default(),
         }
     }
 }
@@ -293,7 +282,6 @@ impl fmt::Debug for UserAccount {
         f.debug_struct("UserAccount")
             .field("access_token", &REDACTED)
             .field("refresh_token", &REDACTED)
-            .field("session", &self.session)
             .finish()
     }
 }
@@ -301,53 +289,6 @@ impl fmt::Debug for UserAccount {
 impl From<UserAccount> for Secret {
     fn from(user_account: UserAccount) -> Self {
         Secret::UserAccount(user_account)
-    }
-}
-
-/// What is known about the tokens of a [`UserAccount`], apart from the tokens.
-///
-/// None of it is secret: it is stored in the profile of the config file, also
-/// when the tokens live in the keyring. Everything is optional because a
-/// token refresh restores it.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct UserAccountSession {
-    /// When the access token expires.
-    pub token_expiry: Option<DateTime<Utc>>,
-    /// The Authorization Server that issued the tokens.
-    pub auth_server_issuer: Option<HttpsUrl>,
-    /// The cached discovery document of the Authorization Server.
-    pub auth_server_metadata: Option<Box<CachedAuthServerMetadata>>,
-}
-
-/// A login through the device flow that predates config version 3
-/// (`auth_type = "user_account_legacy"`).
-#[derive(Clone, PartialEq, Eq)]
-pub struct UserAccountLegacy {
-    pub access_token: String,
-    pub refresh_token: String,
-}
-
-impl UserAccountLegacy {
-    pub fn new(access_token: String, refresh_token: String) -> Self {
-        Self {
-            access_token,
-            refresh_token,
-        }
-    }
-}
-
-impl fmt::Debug for UserAccountLegacy {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("UserAccountLegacy")
-            .field("access_token", &REDACTED)
-            .field("refresh_token", &REDACTED)
-            .finish()
-    }
-}
-
-impl From<UserAccountLegacy> for Secret {
-    fn from(user_account: UserAccountLegacy) -> Self {
-        Secret::UserAccountLegacy(user_account)
     }
 }
 
@@ -385,7 +326,6 @@ mod tests {
             }),
             Secret::ApiKeys(ApiKeys::new("PUBL1C".into(), "PR1V4T3".into())),
             Secret::UserAccount(UserAccount::new("T0K3N".into(), "R3FR3SH".into())),
-            Secret::UserAccountLegacy(UserAccountLegacy::new("T0K3N".into(), "R3FR3SH".into())),
         ];
         let out = format!("{secrets:?}");
         for shown in ["CLIENT", "PUBL1C", "UnixTimestamp(1)"] {

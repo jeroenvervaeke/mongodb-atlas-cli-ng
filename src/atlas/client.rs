@@ -10,13 +10,16 @@ use tower_http::{decompression::DecompressionLayer, set_header::SetRequestHeader
 use super::Operation;
 use super::layer::{OperationError, OperationLayer};
 use crate::client::AuthenticationLayer;
-use crate::config::{self, AtlasCLIConfig};
+use crate::config::{self, AtlasCLIConfig, UserAccountSessionStore};
 use crate::secrets::{self, SecretStore};
 
 #[derive(thiserror::Error, Debug)]
 pub enum AtlasClientError {
     #[error("failed to load config: {0}")]
     Config(#[from] config::LoadCLIConfigError),
+
+    #[error("failed to locate config file: {0}")]
+    ConfigFilePath(#[from] crate::path::GetCLICfgFilePathError),
 
     #[error("failed to open secret store: {0}")]
     SecretStore(#[from] secrets::SecretStoreError),
@@ -34,7 +37,8 @@ pub enum AtlasClientError {
 ///
 /// Three constructors are available, from most to least configurable:
 ///
-/// - [`AtlasClient::new`] — full control: caller provides config, profile, and secret store.
+/// - [`AtlasClient::new`] — full control: caller provides config, profile, secret store and
+///   session store.
 /// - [`AtlasClient::with_profile`] — provide a profile name; config and secrets auto-loaded.
 /// - [`AtlasClient::from_defaults`] — everything auto-detected using the `"default"` profile.
 pub struct AtlasClient {
@@ -49,17 +53,22 @@ impl AtlasClient {
         config: AtlasCLIConfig,
         profile: &str,
         secret_store: Box<dyn SecretStore>,
+        session_store: Box<dyn UserAccountSessionStore>,
     ) -> Result<Self, AtlasClientError> {
-        let auth_layer = AuthenticationLayer::from_config(&config, profile, secret_store)?;
+        let auth_layer =
+            AuthenticationLayer::from_config(&config, profile, secret_store, session_store)?;
         Ok(Self::build(config, auth_layer))
     }
 
     /// Build using a named profile — config and secret store loaded from default paths.
     pub fn with_profile(profile: &str) -> Result<Self, AtlasClientError> {
         let config = config::load_config(Some(profile))?;
-        let secret_store = secrets::get_secret_store()?;
-        let auth_layer = AuthenticationLayer::from_config(&config, profile, secret_store)?;
-        Ok(Self::build(config, auth_layer))
+        Self::new(
+            config,
+            profile,
+            secrets::get_secret_store()?,
+            config::get_session_store(profile)?,
+        )
     }
 
     /// Build with all defaults — `"default"` profile, default config path, auto-detected secrets.

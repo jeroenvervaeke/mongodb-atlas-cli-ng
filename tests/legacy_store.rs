@@ -2,11 +2,10 @@ use std::{fs::File, io::copy};
 use tempfile::NamedTempFile;
 
 use mongodb_atlas_cli::{
-    config::{self, AuthType},
-    https_url::HttpsUrl,
+    config::AuthType,
     secrets::{
-        ApiKeys, ProfileName, Secret, SecretStore, ServiceAccount, UserAccount, UserAccountLegacy,
-        UserAccountSession, auth_server::CachedAuthServerMetadata, legacy::LegacySecretStore,
+        ApiKeys, ProfileName, Secret, SecretStore, ServiceAccount, UserAccount,
+        legacy::LegacySecretStore,
     },
 };
 
@@ -17,22 +16,27 @@ fn profile(name: &str) -> ProfileName {
     ProfileName::new(name).unwrap()
 }
 
-/// The `auth_server_metadata` of `profile_with_user_account` in the fixture.
-const FIXTURE_METADATA: &str = r#"{"metadata":{"issuer":"https://authorize.mongodb.com","authorization_endpoint":"https://authorize.mongodb.com/authorize","token_endpoint":"https://authorize.mongodb.com/token","revocation_endpoint":"https://authorize.mongodb.com/revoke","code_challenge_methods_supported":["S256"]},"cache_expiry":"2026-11-25T10:00:00Z"}"#;
+#[test]
+fn legacy_store_get_user_account_profile() {
+    let expected = Secret::UserAccount(UserAccount::new(
+        "user_account-1234567890".to_string(),
+        "user_account-0987654321".to_string(),
+    ));
 
-fn fixture_session() -> UserAccountSession {
-    UserAccountSession {
-        token_expiry: Some("2026-11-18T10:00:00Z".parse().unwrap()),
-        auth_server_issuer: Some(HttpsUrl::new("https://authorize.mongodb.com").unwrap()),
-        auth_server_metadata: Some(
-            serde_json::from_str::<Box<CachedAuthServerMetadata>>(FIXTURE_METADATA).unwrap(),
-        ),
-    }
+    let legacy_store = LegacySecretStore::new(fixture_path("05-all-credential-types.toml"));
+
+    let actual = legacy_store
+        .get(&profile("profile_with_user_account"), AuthType::UserAccount)
+        .expect("should be able to load config file")
+        .expect("tokens should be present");
+
+    // Assert that the actual config is equal to the expected config
+    assert_eq!(expected, actual);
 }
 
 #[test]
 fn legacy_store_get_user_account_legacy_profile() {
-    let expected = Secret::UserAccountLegacy(UserAccountLegacy::new(
+    let expected = Secret::UserAccount(UserAccount::new(
         "user_account_legacy-1234567890".to_string(),
         "user_account_legacy-0987654321".to_string(),
     ));
@@ -47,63 +51,6 @@ fn legacy_store_get_user_account_legacy_profile() {
         .expect("should be able to load config file")
         .expect("tokens should be present");
 
-    assert_eq!(expected, actual);
-}
-
-/// A token refresh stores new tokens and a new session. The rest of the
-/// profile, and the config as a whole, must stay loadable.
-#[test]
-fn legacy_store_refreshed_user_account_round_trips() {
-    let fixture_path = fixture_path("05-all-credential-types.toml");
-    let temp_config_file = NamedTempFile::new().expect("should be able to create temp file");
-    std::fs::copy(fixture_path, temp_config_file.path())
-        .expect("should be able to copy fixture file to temp file");
-    let mut legacy_store = LegacySecretStore::new(temp_config_file.path().to_path_buf());
-
-    let refreshed = Secret::UserAccount(UserAccount {
-        access_token: "refreshed-access-token".to_string(),
-        refresh_token: "refreshed-refresh-token".to_string(),
-        session: UserAccountSession {
-            token_expiry: Some("2026-11-18T12:00:00Z".parse().unwrap()),
-            ..fixture_session()
-        },
-    });
-
-    legacy_store
-        .set(&profile("profile_with_user_account"), refreshed.clone())
-        .expect("should be able to update user account profile");
-
-    let actual = legacy_store
-        .get(&profile("profile_with_user_account"), AuthType::UserAccount)
-        .expect("should be able to load config file")
-        .expect("user account should be present");
-    assert_eq!(refreshed, actual);
-
-    let config = config::load_config_from_file(
-        temp_config_file.path(),
-        false,
-        Some("profile_with_user_account"),
-    )
-    .expect("config should still load");
-    assert_eq!(Some(AuthType::UserAccount), config.auth_type);
-}
-
-#[test]
-fn legacy_store_get_user_account_profile() {
-    let expected = Secret::UserAccount(UserAccount {
-        access_token: "user_account-1234567890".to_string(),
-        refresh_token: "user_account-0987654321".to_string(),
-        session: fixture_session(),
-    });
-
-    let legacy_store = LegacySecretStore::new(fixture_path("05-all-credential-types.toml"));
-
-    let actual = legacy_store
-        .get(&profile("profile_with_user_account"), AuthType::UserAccount)
-        .expect("should be able to load config file")
-        .expect("tokens should be present");
-
-    // Assert that the actual config is equal to the expected config
     assert_eq!(expected, actual);
 }
 
