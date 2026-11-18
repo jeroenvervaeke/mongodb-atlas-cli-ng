@@ -105,7 +105,7 @@ impl SecretStore for KeyringSecretStore {
         auth_type: AuthType,
     ) -> Result<Option<Secret>, SecretStoreError> {
         Ok(match auth_type {
-            AuthType::UserAccount => get_base_secret(
+            AuthType::UserAccount | AuthType::UserAccountLegacy => get_base_secret(
                 profile_name,
                 SecretKey::AccessToken,
                 SecretKey::RefreshToken,

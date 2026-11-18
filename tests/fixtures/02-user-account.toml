@@ -1,5 +1,5 @@
 skip_update_check = true
-version = 2
+version = 3
 
 [profile_1]
 auth_type = 'user_account'

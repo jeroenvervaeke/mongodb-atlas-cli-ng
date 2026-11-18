@@ -88,7 +88,7 @@ impl SecretStore for LegacySecretStore {
                     token_expires_at,
                 })
             }
-            AuthType::UserAccount => {
+            AuthType::UserAccount | AuthType::UserAccountLegacy => {
                 let Some(access_token) =
                     try_get_optional_string(&mut profile_table, SecretKey::AccessToken)?
                         .map(|s| s.to_string())
