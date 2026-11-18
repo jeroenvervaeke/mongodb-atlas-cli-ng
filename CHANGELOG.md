@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-11-18
+
+### 🚀 Features
+
+- *(config)* [**breaking**] Support atlas-cli-core config version 3 ([#67](https://github.com/jeroenvervaeke/mongodb-atlas-cli-ng/pull/67))
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* Migrate to release-plz ([#68](https://github.com/jeroenvervaeke/mongodb-atlas-cli-ng/pull/68))
+
 ## [0.3.0] - 2026-09-10
 
 ### 🐛 Bug Fixes
