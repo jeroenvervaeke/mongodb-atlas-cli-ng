@@ -54,6 +54,7 @@ tower-http = { version = "0.7.1", features = ["full"] }
 tracing = "0.1"
 url = "2.5.8"
 typed-builder = { version = "0.23.2", optional = true }
+chrono = { version = "0.4.45", default-features = false, features = ["std", "clock", "serde"] }
 
 # macOS drives /usr/bin/security directly (see src/secrets/keyring/security_cli.rs),
 # so the keyring crate is only needed on the other platforms.

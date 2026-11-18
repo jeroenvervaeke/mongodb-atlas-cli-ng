@@ -2,10 +2,13 @@
 //!
 //! This module implements a [`Layer`] and [`Service`] pair that intercepts
 //! outgoing HTTP requests and adds the appropriate authentication headers.
-//! Three authentication methods are supported:
+//! Four authentication methods are supported:
 //!
 //! - **UserAccount** (OAuth2 Bearer + refresh token): Uses an access token
-//!   as a Bearer token, automatically refreshing it when expired.
+//!   as a Bearer token, automatically refreshing it at the dedicated
+//!   Authorization Server when expired.
+//! - **UserAccountLegacy** (OAuth2 Bearer + refresh token): The same, with
+//!   tokens of the device flow that predates config version 3.
 //! - **ServiceAccount** (OAuth2 Client Credentials): Acquires an access token
 //!   using client_id/client_secret, caching it until expiry.
 //! - **ApiKeys** (HTTP Digest): Performs the digest challenge-response protocol
@@ -54,6 +57,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
+use chrono::Utc;
 use http::header::AUTHORIZATION;
 use http::{HeaderValue, Request, Response};
 use http_body::Body;
@@ -62,8 +66,14 @@ use tower::{Layer, Service};
 use tracing::{debug, info, warn};
 
 use crate::config::{AtlasCLIConfig, AuthType};
-use crate::secrets::{ProfileName, Secret, SecretStore, UnixTimestamp, UserAccount};
+use crate::https_url::HttpsUrl;
+use crate::secrets::auth_server::CachedAuthServerMetadata;
+use crate::secrets::{
+    ProfileName, Secret, SecretStore, UnixTimestamp, UserAccount, UserAccountLegacy,
+    UserAccountSession,
+};
 
+use super::auth_server;
 use super::digest;
 use super::error::{AuthError, FromConfigError};
 use super::oauth::{self, CachedToken, OAuthTokenResponse};
@@ -87,14 +97,39 @@ pub struct AuthState {
 /// The cached tokens are mutable (updated on refresh), while the
 /// credentials themselves are fixed for the lifetime of the middleware.
 pub enum AuthMethod {
-    /// OAuth2 Bearer authentication with refresh token support.
+    /// OAuth2 Bearer authentication with refresh token support, for tokens
+    /// issued by the dedicated Authorization Server.
+    ///
+    /// When the cached access token expires, the middleware uses the inner
+    /// Tower service to POST `grant_type=refresh_token` to the token endpoint
+    /// of the Authorization Server. The endpoint comes from the server's
+    /// metadata, which is discovered first when it is missing or stale. The
+    /// new tokens, their expiry and the metadata are persisted to the
+    /// [`SecretStore`].
+    UserAccount {
+        cached_token: Option<CachedToken>,
+        refresh_token: String,
+        /// The Authorization Server that issued the tokens.
+        issuer: HttpsUrl,
+        /// The cached discovery document of `issuer`.
+        metadata: Option<Box<CachedAuthServerMetadata>>,
+        /// The Atlas CLI's OAuth2 client_id (public, not a secret).
+        client_id: String,
+        /// Used to persist refreshed tokens so they survive across CLI invocations.
+        secret_store: Box<dyn SecretStore>,
+        /// The CLI profile name, used as the key for the secret store.
+        profile_name: ProfileName,
+    },
+
+    /// OAuth2 Bearer authentication with refresh token support, for tokens
+    /// issued by the device flow.
     ///
     /// When the cached access token expires, the middleware uses the inner
     /// Tower service to POST to the device-flow token endpoint with
     /// `grant_type=refresh_token`, along with the Atlas CLI `client_id`
     /// and the required OAuth scopes. The new tokens are persisted to the
     /// [`SecretStore`].
-    UserAccount {
+    UserAccountLegacy {
         cached_token: Option<CachedToken>,
         refresh_token: String,
         token_endpoint: String,
@@ -144,6 +179,7 @@ pub enum AuthMethod {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AuthMethodKind {
     UserAccount,
+    UserAccountLegacy,
     ServiceAccount,
     ApiKeys,
 }
@@ -152,6 +188,7 @@ impl AuthMethod {
     fn kind(&self) -> AuthMethodKind {
         match self {
             AuthMethod::UserAccount { .. } => AuthMethodKind::UserAccount,
+            AuthMethod::UserAccountLegacy { .. } => AuthMethodKind::UserAccountLegacy,
             AuthMethod::ServiceAccount { .. } => AuthMethodKind::ServiceAccount,
             AuthMethod::ApiKeys { .. } => AuthMethodKind::ApiKeys,
         }
@@ -162,6 +199,7 @@ impl AuthMethod {
     fn cached_token(&self) -> Option<&CachedToken> {
         match self {
             AuthMethod::UserAccount { cached_token, .. }
+            | AuthMethod::UserAccountLegacy { cached_token, .. }
             | AuthMethod::ServiceAccount { cached_token, .. } => cached_token.as_ref(),
             AuthMethod::ApiKeys { .. } => None,
         }
@@ -174,10 +212,37 @@ impl AuthMethod {
     fn invalidate_token(&mut self) {
         match self {
             AuthMethod::UserAccount { cached_token, .. }
+            | AuthMethod::UserAccountLegacy { cached_token, .. }
             | AuthMethod::ServiceAccount { cached_token, .. } => {
                 *cached_token = None;
             }
             AuthMethod::ApiKeys { .. } => {}
+        }
+    }
+
+    /// The Authorization Server whose metadata has to be discovered before a
+    /// token request can be built. `None` when the metadata is cached and
+    /// fresh, or when the auth method does not use an Authorization Server.
+    fn auth_server_to_discover(&self) -> Option<HttpsUrl> {
+        match self {
+            AuthMethod::UserAccount {
+                issuer, metadata, ..
+            } => {
+                let fresh = metadata
+                    .as_ref()
+                    .is_some_and(|metadata| metadata.is_fresh_for(issuer, Utc::now()));
+                (!fresh).then(|| issuer.clone())
+            }
+            AuthMethod::UserAccountLegacy { .. }
+            | AuthMethod::ServiceAccount { .. }
+            | AuthMethod::ApiKeys { .. } => None,
+        }
+    }
+
+    /// Store freshly discovered Authorization Server metadata.
+    fn set_auth_server_metadata(&mut self, discovered: CachedAuthServerMetadata) {
+        if let AuthMethod::UserAccount { metadata, .. } = self {
+            *metadata = Some(Box::new(discovered));
         }
     }
 
@@ -194,9 +259,27 @@ impl AuthMethod {
     ///
     /// Clones the necessary credential data so the request can be used
     /// after the lock is released.
+    ///
+    /// Returns `None` for UserAccount until the metadata of its Authorization
+    /// Server is known (see
+    /// [`auth_server_to_discover`](Self::auth_server_to_discover)).
     fn build_token_request(&self) -> Option<(String, String, Option<String>)> {
         match self {
             AuthMethod::UserAccount {
+                refresh_token,
+                metadata,
+                client_id,
+                ..
+            } => {
+                let token_endpoint = &metadata.as_ref()?.metadata.token_endpoint;
+                let form_body = url::form_urlencoded::Serializer::new(String::new())
+                    .append_pair("grant_type", "refresh_token")
+                    .append_pair("refresh_token", refresh_token)
+                    .append_pair("client_id", client_id)
+                    .finish();
+                Some((token_endpoint.to_string(), form_body, None))
+            }
+            AuthMethod::UserAccountLegacy {
                 refresh_token,
                 token_endpoint,
                 client_id,
@@ -232,8 +315,8 @@ impl AuthMethod {
 
     /// Update the cached token after a successful refresh/acquisition.
     ///
-    /// For UserAccount, also handles refresh token rotation and persists
-    /// both tokens to the secret store.
+    /// For UserAccount and UserAccountLegacy, also handles refresh token
+    /// rotation and persists both tokens to the secret store.
     fn update_token<E>(
         &mut self,
         new_token: CachedToken,
@@ -241,6 +324,39 @@ impl AuthMethod {
     ) -> Result<(), AuthError<E>> {
         match self {
             AuthMethod::UserAccount {
+                cached_token,
+                refresh_token,
+                issuer,
+                metadata,
+                secret_store,
+                profile_name,
+                ..
+            } => {
+                *cached_token = Some(new_token);
+
+                if let Some(new_refresh) = &response.refresh_token {
+                    *refresh_token = new_refresh.clone();
+                }
+
+                // The expiry is persisted as well: it is how the next CLI
+                // invocation, and the Go Atlas CLI, know whether the access
+                // token is still usable.
+                secret_store.set(
+                    profile_name,
+                    Secret::UserAccount(UserAccount {
+                        access_token: response.access_token.clone(),
+                        refresh_token: refresh_token.clone(),
+                        session: UserAccountSession {
+                            token_expiry: response.expiry(Utc::now()),
+                            auth_server_issuer: Some(issuer.clone()),
+                            auth_server_metadata: metadata.clone(),
+                        },
+                    }),
+                )?;
+
+                Ok(())
+            }
+            AuthMethod::UserAccountLegacy {
                 cached_token,
                 refresh_token,
                 secret_store,
@@ -261,7 +377,7 @@ impl AuthMethod {
                 // time they restart the CLI.
                 secret_store.set(
                     profile_name,
-                    Secret::UserAccount(UserAccount::new(
+                    Secret::UserAccountLegacy(UserAccountLegacy::new(
                         response.access_token.clone(),
                         refresh_token.clone(),
                     )),
@@ -339,6 +455,51 @@ impl AuthenticationLayer {
     /// Create a layer for **UserAccount** authentication.
     ///
     /// Uses OAuth2 Bearer tokens with refresh token support. When the
+    /// access token expires, the middleware automatically refreshes it at
+    /// the token endpoint of the Authorization Server, via the inner Tower
+    /// service.
+    ///
+    /// # Arguments
+    ///
+    /// * `account` - The tokens and their session from the secret store.
+    ///   Without a token expiry the access token is used until the server
+    ///   rejects it.
+    /// * `issuer` - The Authorization Server that issued the tokens. Its
+    ///   metadata is discovered when `account` has no fresh copy of it.
+    /// * `client_id` - The OAuth2 client the tokens were issued to (see
+    ///   [`AtlasCLIConfig::auth_code_client_id`]).
+    /// * `secret_store` - Persists refreshed tokens across CLI invocations.
+    /// * `profile_name` - CLI profile name (key for the secret store).
+    pub fn user_account(
+        account: UserAccount,
+        issuer: HttpsUrl,
+        client_id: String,
+        secret_store: Box<dyn SecretStore>,
+        profile_name: ProfileName,
+    ) -> Self {
+        let cached_token = match account.session.token_expiry {
+            Some(expiry) => CachedToken::with_expiry(account.access_token, expiry),
+            None => CachedToken::new(account.access_token),
+        };
+
+        AuthenticationLayer {
+            state: Arc::new(RwLock::new(AuthState {
+                method: AuthMethod::UserAccount {
+                    cached_token: Some(cached_token),
+                    refresh_token: account.refresh_token,
+                    issuer,
+                    metadata: account.session.auth_server_metadata,
+                    client_id,
+                    secret_store,
+                    profile_name,
+                },
+            })),
+        }
+    }
+
+    /// Create a layer for **UserAccountLegacy** authentication.
+    ///
+    /// Uses OAuth2 Bearer tokens with refresh token support. When the
     /// access token expires, the middleware automatically refreshes it
     /// by POSTing the refresh token to the token endpoint via the inner
     /// Tower service.
@@ -348,11 +509,12 @@ impl AuthenticationLayer {
     /// * `access_token` - Current access token from the secret store, if any.
     ///   Pass `None` to force a refresh on the first request.
     /// * `refresh_token` - OAuth2 refresh token for acquiring new access tokens.
-    /// * `token_endpoint` - URL of the OAuth2 token endpoint (see
-    ///   [`Service::token_endpoint()`](crate::config::Service::token_endpoint)).
+    /// * `token_endpoint` - URL of the device-flow token endpoint.
+    /// * `client_id` - The OAuth2 client the tokens were issued to (see
+    ///   [`AtlasCLIConfig::cli_client_id`]).
     /// * `secret_store` - Persists refreshed tokens across CLI invocations.
     /// * `profile_name` - CLI profile name (key for the secret store).
-    pub fn user_account(
+    pub fn user_account_legacy(
         access_token: Option<String>,
         refresh_token: String,
         token_endpoint: String,
@@ -364,7 +526,7 @@ impl AuthenticationLayer {
 
         AuthenticationLayer {
             state: Arc::new(RwLock::new(AuthState {
-                method: AuthMethod::UserAccount {
+                method: AuthMethod::UserAccountLegacy {
                     cached_token,
                     refresh_token,
                     token_endpoint,
@@ -456,7 +618,8 @@ impl AuthenticationLayer {
     /// * `config` - The loaded CLI config (from [`load_config`](crate::config::load_config)).
     /// * `profile_name` - The CLI profile name (e.g., `"default"`).
     /// * `secret_store` - The secret store to read credentials from (and
-    ///   to persist refreshed tokens into for `UserAccount` auth).
+    ///   to persist refreshed tokens into for `UserAccount` and
+    ///   `UserAccountLegacy` auth).
     ///
     /// # Errors
     ///
@@ -507,6 +670,27 @@ impl AuthenticationLayer {
 
         match (auth_type, secret) {
             (AuthType::UserAccount, Secret::UserAccount(ua)) => {
+                // Tokens are refreshed where they were issued. Only a login
+                // that is not bound to an issuer follows the config.
+                let issuer = ua
+                    .session
+                    .auth_server_issuer
+                    .clone()
+                    .unwrap_or_else(|| config.auth_server_issuer());
+                debug!(
+                    issuer = %issuer,
+                    token_expiry = ?ua.session.token_expiry,
+                    "loaded UserAccount credentials from secret store"
+                );
+                Ok(Self::user_account(
+                    ua,
+                    issuer,
+                    config.auth_code_client_id().to_string(),
+                    secret_store,
+                    profile_name,
+                ))
+            }
+            (AuthType::UserAccountLegacy, Secret::UserAccountLegacy(ua)) => {
                 debug!(
                     access_token_len = ua.access_token.len(),
                     access_token_prefix = &ua.access_token[..ua.access_token.len().min(12)],
@@ -515,9 +699,9 @@ impl AuthenticationLayer {
                     token_endpoint = %user_account_token_endpoint,
                     client_id = %client_id,
                     base_url = %base_url,
-                    "loaded UserAccount credentials from secret store"
+                    "loaded UserAccountLegacy credentials from secret store"
                 );
-                Ok(Self::user_account(
+                Ok(Self::user_account_legacy(
                     Some(ua.access_token),
                     ua.refresh_token,
                     user_account_token_endpoint,
@@ -670,9 +854,9 @@ where
             debug!(auth_method = ?method_kind, "authenticating request");
 
             match method_kind {
-                AuthMethodKind::UserAccount | AuthMethodKind::ServiceAccount => {
-                    handle_bearer_auth(state, inner, req).await
-                }
+                AuthMethodKind::UserAccount
+                | AuthMethodKind::UserAccountLegacy
+                | AuthMethodKind::ServiceAccount => handle_bearer_auth(state, inner, req).await,
                 AuthMethodKind::ApiKeys => handle_digest_auth(state, inner, req).await,
             }
         })
@@ -683,7 +867,8 @@ where
 // Bearer Auth Flow
 // ---------------------------------------------------------------------------
 
-/// Handle Bearer token authentication (UserAccount or ServiceAccount).
+/// Handle Bearer token authentication (UserAccount, UserAccountLegacy or
+/// ServiceAccount).
 ///
 /// 1. Get the cached token (or refresh if expired/missing).
 /// 2. Attach `Authorization: Bearer <token>` and send the request.
@@ -785,7 +970,9 @@ fn make_bearer_header<E>(token: &str) -> Result<HeaderValue, AuthError<E>> {
 ///
 /// 1. **Read lock** (fast path): Check if the cached token is valid.
 ///    Multiple concurrent requests can do this in parallel.
-/// 2. **Build token request** (read lock): Clone the credentials needed
+/// 2. **Discover the Authorization Server** (no lock): Only for UserAccount
+///    without fresh metadata. GET the metadata that holds the token endpoint.
+///    **Build token request** (read lock): Clone the credentials needed
 ///    for the refresh call, then release the lock.
 /// 3. **HTTP call** (no lock): Ready the inner service clone and POST
 ///    to the token endpoint. This is the slow part, and we do it
@@ -831,7 +1018,27 @@ where
         }
     } // Read lock released.
 
-    // Step 2: Build the token request params (clone credentials while under read lock).
+    // Step 2: Discover the Authorization Server if its token endpoint is unknown.
+    let issuer = state.read().await.method.auth_server_to_discover();
+    if let Some(issuer) = issuer {
+        info!(issuer = %issuer, "discovering authorization server");
+
+        std::future::poll_fn(|cx| inner.poll_ready(cx))
+            .await
+            .map_err(AuthError::Inner)?;
+
+        let metadata = auth_server::discover(&mut inner, &issuer)
+            .await
+            .map_err(|e| AuthError::TokenAcquisitionFailed(e.to_string()))?;
+
+        state
+            .write()
+            .await
+            .method
+            .set_auth_server_metadata(metadata);
+    }
+
+    // Build the token request params (clone credentials while under read lock).
     let (endpoint, form_body, authorization) = {
         let guard = state.read().await;
         guard.method.build_token_request().ok_or_else(|| {
@@ -1128,7 +1335,7 @@ mod tests {
     async fn bearer_with_valid_cached_token_skips_refresh() {
         let layer = AuthenticationLayer {
             state: Arc::new(RwLock::new(AuthState {
-                method: AuthMethod::UserAccount {
+                method: AuthMethod::UserAccountLegacy {
                     cached_token: Some(CachedToken::new("cached-access-token".into())),
                     refresh_token: "test-refresh-token".into(),
                     token_endpoint: "https://example.com/token".into(),
@@ -1178,7 +1385,7 @@ mod tests {
             .withf(|profile, secret| {
                 profile == "default"
                     && match secret {
-                        Secret::UserAccount(ua) => {
+                        Secret::UserAccountLegacy(ua) => {
                             ua.access_token == "new-access-token"
                                 && ua.refresh_token == "new-refresh-token"
                         }
@@ -1190,7 +1397,7 @@ mod tests {
 
         let layer = AuthenticationLayer {
             state: Arc::new(RwLock::new(AuthState {
-                method: AuthMethod::UserAccount {
+                method: AuthMethod::UserAccountLegacy {
                     cached_token: Some(expired_token),
                     refresh_token: "old-refresh-token".into(),
                     token_endpoint: "https://example.com/token".into(),
@@ -1239,7 +1446,7 @@ mod tests {
 
         let layer = AuthenticationLayer {
             state: Arc::new(RwLock::new(AuthState {
-                method: AuthMethod::UserAccount {
+                method: AuthMethod::UserAccountLegacy {
                     cached_token: None,
                     refresh_token: "my-refresh-token".into(),
                     token_endpoint: "https://example.com/token".into(),
@@ -1466,7 +1673,7 @@ mod tests {
 
         let layer = AuthenticationLayer {
             state: Arc::new(RwLock::new(AuthState {
-                method: AuthMethod::UserAccount {
+                method: AuthMethod::UserAccountLegacy {
                     cached_token: None,
                     refresh_token: "my-refresh-token".into(),
                     token_endpoint: "https://example.com/token".into(),
@@ -1529,45 +1736,344 @@ mod tests {
         );
     }
 
-    // -- from_config Tests --
+    // -- UserAccount (Authorization Server) Tests --
 
-    #[tokio::test]
-    async fn from_config_creates_user_account_layer() {
-        use crate::config::{AtlasCLIConfig, AuthType};
+    const ISSUER: &str = "https://authorize.example.com";
 
-        let mut mock_store = MockSecretStore::new();
-        mock_store
-            .expect_get()
-            .withf(|profile, auth_type| profile == "default" && *auth_type == AuthType::UserAccount)
-            .times(1)
-            .returning(|_, _| {
-                Ok(Some(Secret::UserAccount(UserAccount::new(
-                    "my-access-token".into(),
-                    "my-refresh-token".into(),
-                ))))
-            });
+    fn issuer() -> HttpsUrl {
+        HttpsUrl::new(ISSUER).unwrap()
+    }
 
-        let config = AtlasCLIConfig {
-            auth_type: Some(AuthType::UserAccount),
-            ..Default::default()
-        };
+    fn metadata_document() -> serde_json::Value {
+        serde_json::json!({
+            "issuer": ISSUER,
+            "authorization_endpoint": format!("{ISSUER}/authorize"),
+            "token_endpoint": format!("{ISSUER}/token"),
+        })
+    }
 
-        let layer = AuthenticationLayer::from_config(&config, "default", Box::new(mock_store))
-            .expect("from_config should succeed");
+    fn fresh_metadata() -> Box<CachedAuthServerMetadata> {
+        Box::new(CachedAuthServerMetadata {
+            metadata: serde_json::from_value(metadata_document()).unwrap(),
+            cache_expiry: Utc::now() + chrono::TimeDelta::days(1),
+        })
+    }
 
-        // Verify the layer produces a working service with a cached token.
-        let mock_svc = MockHttpService::new(vec![ok_response()]);
-        let mut svc = layer.layer(mock_svc.clone());
+    fn discovery_response() -> Response<Full<Bytes>> {
+        Response::builder()
+            .status(StatusCode::OK)
+            .body(Full::new(Bytes::from(metadata_document().to_string())))
+            .unwrap()
+    }
 
-        let response = svc
+    /// A stored login whose access token expired an hour ago.
+    fn expired_user_account(session: UserAccountSession) -> UserAccount {
+        UserAccount {
+            access_token: "old-access-token".into(),
+            refresh_token: "old-refresh-token".into(),
+            session: UserAccountSession {
+                token_expiry: Some(Utc::now() - chrono::TimeDelta::hours(1)),
+                ..session
+            },
+        }
+    }
+
+    fn user_account_layer(
+        account: UserAccount,
+        secret_store: MockSecretStore,
+    ) -> AuthenticationLayer {
+        AuthenticationLayer::user_account(
+            account,
+            issuer(),
+            "test-client-id".into(),
+            Box::new(secret_store),
+            "default".parse().unwrap(),
+        )
+    }
+
+    async fn call_api(layer: &AuthenticationLayer, mock_svc: &MockHttpService) -> StatusCode {
+        layer
+            .layer(mock_svc.clone())
             .ready()
             .await
             .unwrap()
             .call(get_request("http://api.example.com/test"))
             .await
+            .unwrap()
+            .status()
+    }
+
+    #[test]
+    fn user_account_token_request_is_a_public_client_refresh() {
+        let layer = user_account_layer(
+            expired_user_account(UserAccountSession {
+                auth_server_metadata: Some(fresh_metadata()),
+                ..Default::default()
+            }),
+            MockSecretStore::new(),
+        );
+
+        let request = layer.state.blocking_read().method.build_token_request();
+
+        assert_eq!(
+            request,
+            Some((
+                format!("{ISSUER}/token"),
+                "grant_type=refresh_token&refresh_token=old-refresh-token&client_id=test-client-id"
+                    .to_string(),
+                None,
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn user_account_with_unexpired_token_skips_refresh() {
+        let account = UserAccount {
+            session: UserAccountSession {
+                token_expiry: Some(Utc::now() + chrono::TimeDelta::hours(1)),
+                ..Default::default()
+            },
+            ..UserAccount::new("stored-access-token".into(), "refresh-token".into())
+        };
+        let layer = user_account_layer(account, MockSecretStore::new());
+        let mock_svc = MockHttpService::new(vec![ok_response()]);
+
+        assert_eq!(call_api(&layer, &mock_svc).await, StatusCode::OK);
+
+        let captured = mock_svc.take_captured_requests();
+        assert_eq!(captured.len(), 1, "expected only the API request");
+        assert_eq!(
+            captured[0].headers.get(AUTHORIZATION).unwrap(),
+            "Bearer stored-access-token"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_account_refreshes_at_cached_token_endpoint_and_persists_session() {
+        let metadata = fresh_metadata();
+        let before = Utc::now();
+
+        let mut mock_store = MockSecretStore::new();
+        let expected_metadata = metadata.clone();
+        mock_store
+            .expect_set()
+            .withf(move |profile, secret| {
+                let Secret::UserAccount(ua) = secret else {
+                    return false;
+                };
+                profile == "default"
+                    && ua.access_token == "new-access-token"
+                    && ua.refresh_token == "new-refresh-token"
+                    && ua.session.auth_server_issuer == Some(issuer())
+                    && ua.session.auth_server_metadata.as_ref() == Some(&expected_metadata)
+                    && ua
+                        .session
+                        .token_expiry
+                        .is_some_and(|expiry| expiry >= before + chrono::TimeDelta::hours(1))
+            })
+            .times(1)
+            .returning(|_, _| Ok(()));
+
+        let layer = user_account_layer(
+            expired_user_account(UserAccountSession {
+                auth_server_metadata: Some(metadata),
+                ..Default::default()
+            }),
+            mock_store,
+        );
+        let mock_svc = MockHttpService::new(vec![
+            token_endpoint_response("new-access-token", Some("new-refresh-token"), Some(3600)),
+            ok_response(),
+        ]);
+
+        assert_eq!(call_api(&layer, &mock_svc).await, StatusCode::OK);
+
+        let captured = mock_svc.take_captured_requests();
+        assert_eq!(captured.len(), 2, "expected token refresh + API request");
+        assert_eq!(captured[0].method, http::Method::POST);
+        assert_eq!(captured[0].uri, "https://authorize.example.com/token");
+        assert_eq!(
+            captured[1].headers.get(AUTHORIZATION).unwrap(),
+            "Bearer new-access-token"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_account_keeps_refresh_token_when_it_is_not_rotated() {
+        let mut mock_store = MockSecretStore::new();
+        mock_store
+            .expect_set()
+            .withf(|_, secret| {
+                matches!(secret, Secret::UserAccount(ua) if ua.refresh_token == "old-refresh-token")
+            })
+            .times(1)
+            .returning(|_, _| Ok(()));
+
+        let layer = user_account_layer(
+            expired_user_account(UserAccountSession {
+                auth_server_metadata: Some(fresh_metadata()),
+                ..Default::default()
+            }),
+            mock_store,
+        );
+        let mock_svc = MockHttpService::new(vec![
+            token_endpoint_response("new-access-token", None, Some(3600)),
+            ok_response(),
+        ]);
+
+        assert_eq!(call_api(&layer, &mock_svc).await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn user_account_discovers_auth_server_without_fresh_metadata() {
+        let stale_metadata = Box::new(CachedAuthServerMetadata {
+            cache_expiry: Utc::now() - chrono::TimeDelta::seconds(1),
+            ..*fresh_metadata()
+        });
+
+        for cached in [None, Some(stale_metadata)] {
+            let mut mock_store = MockSecretStore::new();
+            mock_store
+                .expect_set()
+                .withf(|_, secret| {
+                    matches!(
+                        secret,
+                        Secret::UserAccount(ua) if ua
+                            .session
+                            .auth_server_metadata
+                            .as_ref()
+                            .is_some_and(|metadata| metadata.cache_expiry > Utc::now())
+                    )
+                })
+                .times(1)
+                .returning(|_, _| Ok(()));
+
+            let layer = user_account_layer(
+                expired_user_account(UserAccountSession {
+                    auth_server_metadata: cached,
+                    ..Default::default()
+                }),
+                mock_store,
+            );
+            let mock_svc = MockHttpService::new(vec![
+                discovery_response(),
+                token_endpoint_response("new-access-token", None, Some(3600)),
+                ok_response(),
+            ]);
+
+            assert_eq!(call_api(&layer, &mock_svc).await, StatusCode::OK);
+
+            let captured = mock_svc.take_captured_requests();
+            assert_eq!(captured.len(), 3, "expected discovery + refresh + API");
+            assert_eq!(captured[0].method, http::Method::GET);
+            assert_eq!(
+                captured[0].uri,
+                "https://authorize.example.com/.well-known/oauth-authorization-server"
+            );
+            assert_eq!(captured[1].uri, "https://authorize.example.com/token");
+        }
+    }
+
+    #[tokio::test]
+    async fn user_account_discovery_failure_returns_error() {
+        let mut mock_store = MockSecretStore::new();
+        mock_store.expect_set().never();
+
+        let layer = user_account_layer(
+            expired_user_account(UserAccountSession::default()),
+            mock_store,
+        );
+        let not_found = Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Full::new(Bytes::new()))
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::OK);
+        let result = layer
+            .layer(MockHttpService::new(vec![not_found]))
+            .ready()
+            .await
+            .unwrap()
+            .call(get_request("http://api.example.com/test"))
+            .await;
+
+        let err = result.unwrap_err();
+        assert!(
+            matches!(&err, AuthError::TokenAcquisitionFailed(msg) if msg.contains("404")),
+            "expected TokenAcquisitionFailed with status 404, got: {err:?}"
+        );
+    }
+
+    // -- from_config Tests --
+
+    use crate::config::Service as AtlasService;
+
+    fn config_with(auth_type: AuthType) -> AtlasCLIConfig {
+        AtlasCLIConfig {
+            auth_type: Some(auth_type),
+            ..Default::default()
+        }
+    }
+
+    fn store_returning(expected: AuthType, secret: Secret) -> MockSecretStore {
+        let mut mock_store = MockSecretStore::new();
+        mock_store
+            .expect_get()
+            .withf(move |profile, auth_type| profile == "default" && *auth_type == expected)
+            .times(1)
+            .returning(move |_, _| Ok(Some(secret.clone())));
+        mock_store
+    }
+
+    /// The URI of the discovery request `from_config` makes for an expired
+    /// `user_account` login.
+    async fn discovered_uri(config: &AtlasCLIConfig, session: UserAccountSession) -> http::Uri {
+        let mut mock_store = store_returning(
+            AuthType::UserAccount,
+            Secret::UserAccount(expired_user_account(session)),
+        );
+        mock_store.expect_set().never();
+        let layer = AuthenticationLayer::from_config(config, "default", Box::new(mock_store))
+            .expect("from_config should succeed");
+
+        // Any answer will do: only the request is of interest.
+        let mock_svc = MockHttpService::new(vec![
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Full::new(Bytes::new()))
+                .unwrap(),
+        ]);
+        let result = layer
+            .layer(mock_svc.clone())
+            .ready()
+            .await
+            .unwrap()
+            .call(get_request("http://api.example.com/test"))
+            .await;
+        assert!(result.is_err());
+
+        mock_svc.take_captured_requests().remove(0).uri
+    }
+
+    #[tokio::test]
+    async fn from_config_creates_user_account_layer() {
+        let account = UserAccount {
+            session: UserAccountSession {
+                token_expiry: Some(Utc::now() + chrono::TimeDelta::hours(1)),
+                ..Default::default()
+            },
+            ..UserAccount::new("my-access-token".into(), "my-refresh-token".into())
+        };
+        let mock_store = store_returning(AuthType::UserAccount, Secret::UserAccount(account));
+
+        let layer = AuthenticationLayer::from_config(
+            &config_with(AuthType::UserAccount),
+            "default",
+            Box::new(mock_store),
+        )
+        .expect("from_config should succeed");
+
+        let mock_svc = MockHttpService::new(vec![ok_response()]);
+        assert_eq!(call_api(&layer, &mock_svc).await, StatusCode::OK);
 
         let captured = mock_svc.take_captured_requests();
         assert_eq!(captured.len(), 1);
@@ -1575,5 +2081,80 @@ mod tests {
             captured[0].headers.get(AUTHORIZATION).unwrap(),
             "Bearer my-access-token"
         );
+    }
+
+    #[tokio::test]
+    async fn from_config_refreshes_user_account_at_the_issuer_of_its_tokens() {
+        let config = AtlasCLIConfig {
+            auth_server_url: Some(HttpsUrl::new("https://configured.example.com").unwrap()),
+            ..config_with(AuthType::UserAccount)
+        };
+        let session = UserAccountSession {
+            auth_server_issuer: Some(issuer()),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            discovered_uri(&config, session).await,
+            "https://authorize.example.com/.well-known/oauth-authorization-server"
+        );
+    }
+
+    #[tokio::test]
+    async fn from_config_uses_the_configured_issuer_for_an_unbound_user_account() {
+        let config = AtlasCLIConfig {
+            service: Some(AtlasService::CloudGov),
+            ..config_with(AuthType::UserAccount)
+        };
+
+        assert_eq!(
+            discovered_uri(&config, UserAccountSession::default()).await,
+            "https://authorize.mongodbgov.com/.well-known/oauth-authorization-server"
+        );
+    }
+
+    #[tokio::test]
+    async fn from_config_creates_user_account_legacy_layer() {
+        let mock_store = store_returning(
+            AuthType::UserAccountLegacy,
+            Secret::UserAccountLegacy(UserAccountLegacy::new(
+                "my-access-token".into(),
+                "my-refresh-token".into(),
+            )),
+        );
+
+        let layer = AuthenticationLayer::from_config(
+            &config_with(AuthType::UserAccountLegacy),
+            "default",
+            Box::new(mock_store),
+        )
+        .expect("from_config should succeed");
+
+        // The device-flow token is used as is: its expiry is unknown.
+        let mock_svc = MockHttpService::new(vec![ok_response()]);
+        assert_eq!(call_api(&layer, &mock_svc).await, StatusCode::OK);
+
+        let captured = mock_svc.take_captured_requests();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(
+            captured[0].headers.get(AUTHORIZATION).unwrap(),
+            "Bearer my-access-token"
+        );
+    }
+
+    #[test]
+    fn from_config_rejects_a_secret_of_another_auth_type() {
+        let mock_store = store_returning(
+            AuthType::UserAccount,
+            Secret::UserAccountLegacy(UserAccountLegacy::new("a".into(), "r".into())),
+        );
+
+        let result = AuthenticationLayer::from_config(
+            &config_with(AuthType::UserAccount),
+            "default",
+            Box::new(mock_store),
+        );
+
+        assert!(matches!(result, Err(FromConfigError::AuthTypeMismatch)));
     }
 }

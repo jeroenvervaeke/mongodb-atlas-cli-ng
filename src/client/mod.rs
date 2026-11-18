@@ -4,8 +4,11 @@
 //! The main components are:
 //!
 //! - [`AuthenticationLayer`] / [`Authentication`]: Tower middleware that adds
-//!   auth headers to outgoing requests. Supports three auth methods:
-//!   - **UserAccount**: OAuth2 Bearer + refresh token
+//!   auth headers to outgoing requests. Supports four auth methods:
+//!   - **UserAccount**: OAuth2 Bearer + refresh token, issued by the
+//!     dedicated Authorization Server
+//!   - **UserAccountLegacy**: OAuth2 Bearer + refresh token, issued by the
+//!     device flow
 //!   - **ServiceAccount**: OAuth2 client credentials grant
 //!   - **ApiKeys**: HTTP Digest authentication
 //!
@@ -35,6 +38,7 @@
 //! ```
 
 pub mod auth;
+mod auth_server;
 pub mod digest;
 pub mod error;
 pub mod oauth;

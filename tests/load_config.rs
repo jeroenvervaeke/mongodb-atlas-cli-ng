@@ -74,6 +74,8 @@ fn all_options_config_profile_with_user_account() {
         output: Some(config::OutputFormat::Json),
         ops_manager_url: None,
         client_id: None,
+        auth_server_url: None,
+        auth_client_id: None,
     };
 
     let actual = config::load_config_from_file(
@@ -85,6 +87,18 @@ fn all_options_config_profile_with_user_account() {
 
     // Assert that the actual config is equal to the expected config
     assert_eq!(expected, actual);
+}
+
+#[test]
+fn all_options_config_profile_with_user_account_legacy() {
+    let actual = config::load_config_from_file(
+        fixture_path("03-all-options.toml"),
+        false,
+        Some("profile_with_user_account_legacy"),
+    )
+    .expect("should be able to load config file");
+
+    assert_eq!(Some(config::AuthType::UserAccountLegacy), actual.auth_type);
 }
 
 #[test]
@@ -142,4 +156,15 @@ fn load_config_from_file_invalid_version() {
     let result =
         config::load_config_from_file(fixture_path("04-invalid-version.toml"), false, None);
     assert!(result.is_err());
+}
+
+#[test]
+fn load_config_from_file_outdated_version() {
+    let result =
+        config::load_config_from_file(fixture_path("06-outdated-version.toml"), false, None);
+
+    assert!(matches!(
+        result,
+        Err(config::LoadCLIConfigError::UnsupportedConfigVersion(2))
+    ));
 }

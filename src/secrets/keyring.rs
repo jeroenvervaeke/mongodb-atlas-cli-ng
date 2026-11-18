@@ -1,8 +1,15 @@
+use std::path::PathBuf;
+
+use toml::Value;
 use tracing::warn;
 
 use super::{
     ApiKeys, ProfileName, Secret, SecretKey, SecretStore, SecretStoreError, ServiceAccount,
-    UserAccount,
+    UserAccount, UserAccountLegacy, UserAccountSession,
+    profile_file::{
+        profile_table_mut, read_table, read_user_account_session, save_table,
+        write_user_account_session,
+    },
 };
 use crate::{
     config::AuthType,
@@ -42,15 +49,51 @@ impl KeychainService {
     }
 }
 
-pub struct KeyringSecretStore {}
+pub struct KeyringSecretStore {
+    config_file: PathBuf,
+}
 
 impl KeyringSecretStore {
-    pub fn new() -> Option<Self> {
+    /// `config_file` is the CLI config file: the part of a login that is not
+    /// secret is stored in its profile tables, not in the keyring.
+    pub fn new(config_file: PathBuf) -> Option<Self> {
         if backend::is_available(&KeychainService::new(PROBE_PROFILE), PROBE_PROPERTY) {
-            Some(Self {})
+            Some(Self { config_file })
         } else {
             None
         }
+    }
+
+    fn read_user_account_session(
+        &self,
+        profile_name: &ProfileName,
+    ) -> Result<UserAccountSession, SecretStoreError> {
+        match read_table(&self.config_file)?.get(profile_name.as_str()) {
+            Some(Value::Table(profile_table)) => read_user_account_session(profile_table),
+            _ => Ok(UserAccountSession::default()),
+        }
+    }
+
+    fn write_user_account_session(
+        &self,
+        profile_name: &ProfileName,
+        session: &UserAccountSession,
+    ) -> Result<(), SecretStoreError> {
+        let mut toml_table = read_table(&self.config_file)?;
+        write_user_account_session(profile_table_mut(&mut toml_table, profile_name)?, session)?;
+        save_table(&self.config_file, &toml_table)
+    }
+
+    fn delete_user_account_session(
+        &self,
+        profile_name: &ProfileName,
+    ) -> Result<(), SecretStoreError> {
+        let mut toml_table = read_table(&self.config_file)?;
+        let Some(Value::Table(profile_table)) = toml_table.get_mut(profile_name.as_str()) else {
+            return Ok(());
+        };
+        write_user_account_session(profile_table, &UserAccountSession::default())?;
+        save_table(&self.config_file, &toml_table)
     }
 }
 
@@ -105,11 +148,26 @@ impl SecretStore for KeyringSecretStore {
         auth_type: AuthType,
     ) -> Result<Option<Secret>, SecretStoreError> {
         Ok(match auth_type {
-            AuthType::UserAccount => get_base_secret(
+            AuthType::UserAccount => {
+                let Some(access_token) = get_keyring_value(profile_name, SecretKey::AccessToken)?
+                else {
+                    return Ok(None);
+                };
+                let Some(refresh_token) = get_keyring_value(profile_name, SecretKey::RefreshToken)?
+                else {
+                    return Ok(None);
+                };
+                Some(Secret::UserAccount(UserAccount {
+                    access_token,
+                    refresh_token,
+                    session: self.read_user_account_session(profile_name)?,
+                }))
+            }
+            AuthType::UserAccountLegacy => get_base_secret(
                 profile_name,
                 SecretKey::AccessToken,
                 SecretKey::RefreshToken,
-                UserAccount::new,
+                UserAccountLegacy::new,
             )?,
             AuthType::ApiKeys => get_base_secret(
                 profile_name,
@@ -188,18 +246,18 @@ impl SecretStore for KeyringSecretStore {
                 Ok(())
             }
             Secret::UserAccount(user_account) => {
-                set_keyring_value(
+                set_tokens(
                     profile_name,
-                    SecretKey::AccessToken,
                     &user_account.access_token,
-                )?;
-                set_keyring_value(
-                    profile_name,
-                    SecretKey::RefreshToken,
                     &user_account.refresh_token,
                 )?;
-                Ok(())
+                self.write_user_account_session(profile_name, &user_account.session)
             }
+            Secret::UserAccountLegacy(user_account) => set_tokens(
+                profile_name,
+                &user_account.access_token,
+                &user_account.refresh_token,
+            ),
         }
     }
 
@@ -212,8 +270,21 @@ impl SecretStore for KeyringSecretStore {
                 first_error.get_or_insert(e);
             }
         }
+        if let Err(e) = self.delete_user_account_session(profile_name) {
+            warn!(error = %e, "failed to delete the user account session from the config file");
+            first_error.get_or_insert(e);
+        }
         first_error.map_or(Ok(()), Err)
     }
+}
+
+fn set_tokens(
+    profile_name: &ProfileName,
+    access_token: &str,
+    refresh_token: &str,
+) -> Result<(), SecretStoreError> {
+    set_keyring_value(profile_name, SecretKey::AccessToken, access_token)?;
+    set_keyring_value(profile_name, SecretKey::RefreshToken, refresh_token)
 }
 
 #[cfg(test)]

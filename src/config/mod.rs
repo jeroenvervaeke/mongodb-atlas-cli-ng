@@ -5,9 +5,19 @@ use config::{Config, ConfigError, Environment};
 use serde::Deserialize;
 use source::{AtlasCLIGlobalConfigSource, AtlasCLIProfileConfigSource};
 
-use crate::path::GetCLICfgFilePathError;
+use crate::{https_url::HttpsUrl, path::GetCLICfgFilePathError};
 
 pub mod source;
+
+/// The config version of atlas-cli-core this library is compatible with.
+///
+/// Other versions are rejected, older ones too: the meaning of
+/// `auth_type = "user_account"` changed in version 3.
+pub const SUPPORTED_CONFIG_VERSION: u32 = 3;
+
+/// The public OAuth2 client the Atlas CLI is registered as at the
+/// Authorization Server. It is the same in every environment.
+const AUTH_CODE_CLIENT_ID: &str = "https://mongodb.com/products/tools/atlas-cli";
 
 #[derive(thiserror::Error, Debug)]
 pub enum LoadCLIConfigError {
@@ -17,7 +27,7 @@ pub enum LoadCLIConfigError {
     #[error("Failed to build config: {0}")]
     FailedToBuildConfig(#[from] ConfigError),
 
-    #[error("Unsupported config version: {0}")]
+    #[error("Unsupported config version: {0}, expected {SUPPORTED_CONFIG_VERSION}")]
     UnsupportedConfigVersion(u32),
 }
 
@@ -53,12 +63,25 @@ pub struct AtlasCLIConfig {
     /// client ID than production. When set, this takes priority over the
     /// hardcoded per-service defaults.
     pub client_id: Option<String>,
+
+    /// Authorization Server issuer for `user_account` logins that are not
+    /// bound to an issuer yet. Set through `MONGODB_ATLAS_AUTH_SERVER_URL`.
+    pub auth_server_url: Option<HttpsUrl>,
+
+    /// OAuth2 client ID override for `user_account` logins. Set through
+    /// `MONGODB_ATLAS_AUTH_CLIENT_ID`. Not `client_id`, which is also the
+    /// service account client ID.
+    pub auth_client_id: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 pub enum AuthType {
+    /// The Authorization Code flow against the dedicated Authorization Server.
     #[serde(rename = "user_account")]
     UserAccount,
+    /// The device flow, which was `user_account` before config version 3.
+    #[serde(rename = "user_account_legacy")]
+    UserAccountLegacy,
     #[serde(rename = "api_keys")]
     ApiKeys,
     #[serde(rename = "service_account")]
@@ -99,6 +122,31 @@ impl AtlasCLIConfig {
             self.service.unwrap_or(Service::Cloud).cli_client_id()
         }
     }
+
+    /// Returns the Authorization Server issuer for a `user_account` login
+    /// that is not bound to an issuer yet.
+    ///
+    /// Priority (matching the Go CLI):
+    /// 1. `auth_server_url` from the config
+    /// 2. Default issuer derived from the `service` field
+    pub fn auth_server_issuer(&self) -> HttpsUrl {
+        self.auth_server_url.clone().unwrap_or_else(|| {
+            self.service
+                .unwrap_or(Service::Cloud)
+                .default_auth_server_issuer()
+        })
+    }
+
+    /// Returns the OAuth2 client ID for `user_account` authentication.
+    ///
+    /// Priority (matching the Go CLI):
+    /// 1. `auth_client_id` from the config
+    /// 2. The registered public client of the Atlas CLI
+    pub fn auth_code_client_id(&self) -> &str {
+        self.auth_client_id
+            .as_deref()
+            .unwrap_or(AUTH_CODE_CLIENT_ID)
+    }
 }
 
 impl Service {
@@ -119,6 +167,16 @@ impl Service {
             Service::Cloud => "0oabtxactgS3gHIR0297",
             Service::CloudGov => "0oabtyfelbTBdoucy297",
         }
+    }
+
+    /// The Authorization Server that issues `user_account` tokens for this
+    /// service environment.
+    pub fn default_auth_server_issuer(&self) -> HttpsUrl {
+        let issuer = match self {
+            Service::Cloud => "https://authorize.mongodb.com",
+            Service::CloudGov => "https://authorize.mongodbgov.com",
+        };
+        HttpsUrl::new(issuer).expect("the literal is an absolute https URL")
     }
 }
 
@@ -176,7 +234,7 @@ pub fn load_config_from_file(
     let config_version = config
         .get::<u32>("version")
         .map_err(|_| LoadCLIConfigError::UnsupportedConfigVersion(0))?;
-    if config_version != 2 {
+    if config_version != SUPPORTED_CONFIG_VERSION {
         return Err(LoadCLIConfigError::UnsupportedConfigVersion(config_version));
     }
 
@@ -184,4 +242,51 @@ pub fn load_config_from_file(
     let config = config.try_deserialize::<AtlasCLIConfig>()?;
 
     Ok(config)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auth_server_issuer_prefers_the_configured_url_over_the_service_default() {
+        let configured = HttpsUrl::new("https://authorize.example.com").unwrap();
+
+        for (auth_server_url, service, expected) in [
+            (None, None, "https://authorize.mongodb.com"),
+            (None, Some(Service::Cloud), "https://authorize.mongodb.com"),
+            (
+                None,
+                Some(Service::CloudGov),
+                "https://authorize.mongodbgov.com",
+            ),
+            (
+                Some(configured),
+                Some(Service::CloudGov),
+                "https://authorize.example.com",
+            ),
+        ] {
+            let config = AtlasCLIConfig {
+                auth_server_url,
+                service,
+                ..Default::default()
+            };
+            assert_eq!(config.auth_server_issuer().as_str(), expected);
+        }
+    }
+
+    #[test]
+    fn auth_code_client_id_prefers_the_configured_client_id() {
+        let default = AtlasCLIConfig::default();
+        let configured = AtlasCLIConfig {
+            auth_client_id: Some("custom-client".into()),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            default.auth_code_client_id(),
+            "https://mongodb.com/products/tools/atlas-cli"
+        );
+        assert_eq!(configured.auth_code_client_id(), "custom-client");
+    }
 }

@@ -1,4 +1,4 @@
-version = 2
+version = 3
 
 local_deployment_image = 'my-registry.internal:5000/atlas-cli-local:latest'
 mongosh_path = '/home/user/mdb-tools/mongosh'
@@ -12,6 +12,9 @@ project_id = '689eebca5ebb720663a2d123'
 
 auth_type = 'user_account'
 output = 'json'
+
+[profile_with_user_account_legacy]
+auth_type = 'user_account_legacy'
 
 [profile_with_api_keys]
 auth_type = 'api_keys'
