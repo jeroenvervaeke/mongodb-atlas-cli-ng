@@ -260,6 +260,8 @@ impl From<ServiceAccount> for Secret {
     }
 }
 
+/// The tokens of a `user_account` or `user_account_legacy` login. Both auth
+/// types store them under the same keys.
 #[derive(Clone, PartialEq, Eq)]
 pub struct UserAccount {
     pub access_token: String,

@@ -35,6 +35,26 @@ fn legacy_store_get_user_account_profile() {
 }
 
 #[test]
+fn legacy_store_get_user_account_legacy_profile() {
+    let expected = Secret::UserAccount(UserAccount::new(
+        "user_account_legacy-1234567890".to_string(),
+        "user_account_legacy-0987654321".to_string(),
+    ));
+
+    let legacy_store = LegacySecretStore::new(fixture_path("05-all-credential-types.toml"));
+
+    let actual = legacy_store
+        .get(
+            &profile("profile_with_user_account_legacy"),
+            AuthType::UserAccountLegacy,
+        )
+        .expect("should be able to load config file")
+        .expect("tokens should be present");
+
+    assert_eq!(expected, actual);
+}
+
+#[test]
 fn legacy_store_get_api_keys_profile() {
     let expected = Secret::ApiKeys(ApiKeys::new(
         "api_keys-1234567890".to_string(),

@@ -24,6 +24,7 @@ use std::fmt;
 use std::time::{Duration, Instant, SystemTime};
 
 use bytes::{Buf, Bytes};
+use chrono::{DateTime, TimeDelta, Utc};
 use http::{Request, Response};
 use http_body::Body;
 use http_body_util::BodyExt;
@@ -55,6 +56,15 @@ pub struct OAuthTokenResponse {
     /// The lifetime of the access token in seconds.
     /// If `None`, the token has no known expiry.
     pub expires_in: Option<u64>,
+}
+
+impl OAuthTokenResponse {
+    /// When the access token of a response received at `now` expires.
+    /// `None` if the response has no usable `expires_in`.
+    pub fn expiry(&self, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+        let seconds = i64::try_from(self.expires_in?).ok()?;
+        now.checked_add_signed(TimeDelta::try_seconds(seconds)?)
+    }
 }
 
 /// Errors that can occur during OAuth2 token acquisition.
@@ -204,6 +214,20 @@ impl CachedToken {
         }
     }
 
+    /// Create a cached token from an access token and the moment it expires.
+    ///
+    /// Like [`from_response`](Self::from_response), the token counts as
+    /// expired a buffer before `expiry`.
+    pub fn with_expiry(access_token: String, expiry: DateTime<Utc>) -> Self {
+        // A negative remaining lifetime means the token has already expired.
+        let remaining = (expiry - Utc::now()).to_std().unwrap_or(Duration::ZERO);
+
+        CachedToken {
+            access_token,
+            expires_at: Instant::now().checked_add(remaining.saturating_sub(TOKEN_EXPIRY_BUFFER)),
+        }
+    }
+
     /// Create a cached token from an OAuth2 token response.
     ///
     /// If the response includes `expires_in`, the expiry time is calculated
@@ -287,6 +311,34 @@ mod tests {
             expires_at: Some(Instant::now() - Duration::from_secs(60)),
         };
         assert!(token.is_expired());
+    }
+
+    #[test]
+    fn with_expiry_expires_a_buffer_before_the_expiry() {
+        let token = |seconds| {
+            CachedToken::with_expiry("t".into(), Utc::now() + TimeDelta::seconds(seconds))
+        };
+
+        assert!(!token(3600).is_expired());
+        assert!(token(10).is_expired());
+        assert!(token(-3600).is_expired());
+    }
+
+    #[test]
+    fn token_response_expiry_adds_expires_in() {
+        let now: DateTime<Utc> = "2026-11-18T10:00:00Z".parse().unwrap();
+        let response = |expires_in| OAuthTokenResponse {
+            access_token: "access".into(),
+            refresh_token: None,
+            expires_in,
+        };
+
+        assert_eq!(
+            response(Some(3600)).expiry(now),
+            Some("2026-11-18T11:00:00Z".parse().unwrap())
+        );
+        assert_eq!(response(None).expiry(now), None);
+        assert_eq!(response(Some(u64::MAX)).expiry(now), None);
     }
 
     #[test]
