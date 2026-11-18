@@ -1,0 +1,57 @@
+# Both crates share one version, one changelog and one "v{{ version }}" tag,
+# as they did before release-plz. Defaults cover the rest, including
+# cargo-semver-checks forcing a breaking bump when the public API breaks.
+[workspace]
+# Publish only when a release PR merges, not on every push to master.
+release_always = false
+
+[[package]]
+name = "mongodb-atlas-cli"
+version_group = "mongodb-atlas-cli"
+changelog_include = ["mongodb-atlas-cli-macros"]
+git_tag_name = "v{{ version }}"
+git_release_name = "Release v{{ version }}"
+
+# Released together with the main crate: no changelog, tag or GitHub release
+# of its own.
+[[package]]
+name = "mongodb-atlas-cli-macros"
+version_group = "mongodb-atlas-cli"
+changelog_update = false
+git_tag_enable = false
+git_release_enable = false
+
+# Changelog rendering via release-plz's embedded git-cliff, ported from the
+# cliff.toml this file replaces.
+[changelog]
+header = "# Changelog\n\nAll notable changes to this project will be documented in this file.\n"
+body = """
+
+## [{{ version }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+
+{% for commit in commits %}\
+- {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
+{% if commit.breaking %}[**breaking**] {% endif %}\
+{{ commit.message | upper_first }}
+{% endfor %}\
+{% endfor %}"""
+trim = true
+sort_commits = "oldest"
+commit_parsers = [
+    { message = "^feat", group = "<!-- 0 -->🚀 Features" },
+    { message = "^fix", group = "<!-- 1 -->🐛 Bug Fixes" },
+    { message = "^refactor", group = "<!-- 2 -->🚜 Refactor" },
+    { message = "^doc", group = "<!-- 3 -->📚 Documentation" },
+    { message = "^perf", group = "<!-- 4 -->⚡ Performance" },
+    { message = "^style", group = "<!-- 5 -->🎨 Styling" },
+    { message = "^test", group = "<!-- 6 -->🧪 Testing" },
+    { message = "^chore: release", skip = true },
+    { message = "^chore\\(release\\)", skip = true },
+    { message = "^chore\\(deps.*\\)", skip = true },
+    { message = "^chore|^ci", group = "<!-- 7 -->⚙️ Miscellaneous Tasks" },
+    { body = ".*security", group = "<!-- 8 -->🛡️ Security" },
+    { message = "^revert", group = "<!-- 9 -->◀️ Revert" },
+    { message = ".*", group = "<!-- 10 -->💼 Other" },
+]
